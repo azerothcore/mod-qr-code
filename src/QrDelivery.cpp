@@ -17,11 +17,91 @@
 
 #include "QrDelivery.h"
 #include "Chat.h"
+#include "GossipDef.h"
+#include "NPCHandler.h"
+#include "ObjectGuid.h"
 #include "Opcodes.h"
 #include "Player.h"
 #include "QuestDef.h"
+#include "ScriptMgr.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
+
+#include <unordered_map>
+
+namespace
+{
+    /// npc_text id the gossip windows publish their body text under. It has to sit in
+    /// the range the client demonstrably caches - the frame is not shown until the id
+    /// resolves, so an id the cache rejects leaves the window waiting forever. This one
+    /// is just below DEFAULT_GOSSIP_MESSAGE (16777215), the highest id the client
+    /// handles in every session, and above the rest of the world DB, which stops at
+    /// 921061.
+    constexpr uint32 QR_GOSSIP_TEXT_ID = 16777200;
+
+    /// Menu id stamped on the gossip so the select handler can recognise it. The client
+    /// echoes it in CMSG_GOSSIP_SELECT_OPTION, and for a player-sourced gossip the core
+    /// routes that to OnPlayerGossipSelect with this id.
+    constexpr uint32 QR_GOSSIP_MENU_ID = 16777200;
+
+    constexpr uint32 QR_GOSSIP_ACTION_CLOSE = 0;
+    constexpr uint32 QR_GOSSIP_ACTION_SHOW  = 1;
+
+    /// Grids waiting for their "Show the QR code" click, keyed by GUID rather than
+    /// Player* because the entry must not outlive a relog unnoticed - it is erased on
+    /// select, on Close and on logout.
+    std::unordered_map<ObjectGuid, std::string> _pendingQr;
+
+    /// Publishes @p greeting to the client's npc_text cache under QR_GOSSIP_TEXT_ID.
+    ///
+    /// Field order mirrors HandleNpcTextQueryOpcode's reply exactly - the client
+    /// accepts the packet unsolicited and overwrites its cache entry, but only reads
+    /// it whole, so all eight text options have to be present. Option 0 carries the
+    /// greeting at probability 1; the rest stay empty at probability 0 so they are
+    /// never picked.
+    void PushGossipText(Player* player, std::string const& greeting)
+    {
+        WorldPacket data(SMSG_NPC_TEXT_UPDATE, 64 + greeting.size() * 2);
+        data << uint32(QR_GOSSIP_TEXT_ID);
+
+        std::string const empty;
+        for (uint8 i = 0; i < MAX_GOSSIP_TEXT_OPTIONS; ++i)
+        {
+            std::string const& text = i == 0 ? greeting : empty;
+
+            data << float(i == 0 ? 1.0f : 0.0f);                // probability
+            data << text;                                       // male text
+            data << text;                                       // female text
+            data << uint32(0);                                  // language
+
+            for (uint8 j = 0; j < MAX_GOSSIP_TEXT_EMOTES; ++j)
+            {
+                data << uint32(0);                              // emote delay
+                data << uint32(0);                              // emote id
+            }
+        }
+
+        player->GetSession()->SendPacket(&data);
+    }
+
+    /// Opens the player-sourced gossip window on @p greeting, with the "Show the QR
+    /// code" option ahead of the Close one.
+    ///
+    /// The text push has to land in the cache before the window opens, but both packets
+    /// travel the same ordered stream, so sending them back to back is enough.
+    void OpenGossipWindow(Player* player, std::string const& greeting)
+    {
+        PushGossipText(player, greeting);
+
+        PlayerMenu* menu = player->PlayerTalkClass;
+        menu->ClearMenus();
+        menu->GetGossipMenu().SetMenuId(QR_GOSSIP_MENU_ID);
+        menu->GetGossipMenu().AddMenuItem(0, GOSSIP_ICON_INTERACT_1, "Show the QR code", 0,
+            QR_GOSSIP_ACTION_SHOW, "", 0);
+        menu->GetGossipMenu().AddMenuItem(1, GOSSIP_ICON_CHAT, "Close", 0, QR_GOSSIP_ACTION_CLOSE, "", 0);
+        menu->SendGossipMenu(QR_GOSSIP_TEXT_ID, player->GetGUID());
+    }
+}
 
 namespace QrDelivery
 {
@@ -84,6 +164,12 @@ namespace QrDelivery
         player->GetSession()->SendPacket(&data);
     }
 
+    void SendGossipQrMenu(Player* player, std::string const& grid)
+    {
+        _pendingQr[player->GetGUID()] = grid;
+        OpenGossipWindow(player, "A QR code is ready.\n\nPick the option below to print it in the chat frame.");
+    }
+
     std::string EscapeUiSequences(std::string_view text)
     {
         std::string escaped;
@@ -98,4 +184,42 @@ namespace QrDelivery
 
         return escaped;
     }
+}
+
+/// Serves the QR gossip menu's clicks. Player-sourced gossip has no NPC script behind
+/// it, so without this the options would do nothing.
+class qr_code_player : public PlayerScript
+{
+public:
+    qr_code_player() : PlayerScript("qr_code_player", { PLAYERHOOK_ON_GOSSIP_SELECT, PLAYERHOOK_ON_LOGOUT }) { }
+
+    void OnPlayerGossipSelect(Player* player, uint32 menu_id, uint32 /*sender*/, uint32 action) override
+    {
+        if (menu_id != QR_GOSSIP_MENU_ID)
+            return;
+
+        player->PlayerTalkClass->SendCloseGossip();
+
+        auto const itr = _pendingQr.find(player->GetGUID());
+        if (itr == _pendingQr.end())
+            return;
+
+        if (action == QR_GOSSIP_ACTION_SHOW)
+        {
+            ChatHandler handler(player->GetSession());
+            QrDelivery::SendChat(&handler, itr->second);
+        }
+
+        _pendingQr.erase(itr);
+    }
+
+    void OnPlayerLogout(Player* player) override
+    {
+        _pendingQr.erase(player->GetGUID());
+    }
+};
+
+void AddSC_qr_code_player()
+{
+    new qr_code_player();
 }

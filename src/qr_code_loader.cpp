@@ -17,6 +17,7 @@
 
 void AddSC_qr_code_world();
 void AddSC_qr_code_commandscript();
+void AddSC_qr_code_player();
 
 // CMake rewrites '-' to '_' when it derives this name from the directory, so the
 // spelling below is fixed: any other name is a link error.
@@ -24,4 +25,5 @@ void Addmod_qr_codeScripts()
 {
     AddSC_qr_code_world();
     AddSC_qr_code_commandscript();
+    AddSC_qr_code_player();
 }

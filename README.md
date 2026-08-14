@@ -7,7 +7,7 @@ patch, no client-side files of any kind.
 .qr https://www.azerothcore.org
 ```
 
-![A QR code drawn in the chat frame of an unmodified 3.3.5a client](images/qr-code-in-chat.png)
+![A QR code drawn in the chat frame of an unmodified 3.3.5a client](images/qr-code-in-chat-fullheight.png)
 
 ## How it works
 
@@ -69,11 +69,12 @@ Then edit `qrcode.conf` in your config directory (the build copies `conf/qrcode.
 
 | Command | Level | Description |
 | --- | --- | --- |
-| `.qr <text>` | Game Master | Renders `<text>` as a QR code. |
+| `.qr <text>` | Game Master | Renders `<text>` as a QR code via the configured backend. |
+| `.qr gossip <text>` | Game Master | Opens a gossip menu whose "Show the QR code" option presents the code, whatever the backend. |
 | `.qr grid [rows] [cols]` | Game Master | Checkerboard at the active geometry, no QR encoding. Defaults to 10×10. |
 | `.qr probe <n>` | Game Master | Draws one line of `n` alternating modules ending in a three-module black sentinel. |
 
-All three need an in-game session; none work from the console. Both sides of `grid` are optional —
+All of them need an in-game session; none work from the console. Both sides of `grid` are optional —
 a single argument means a square of that size.
 
 ### Opening `.qr` to regular players
@@ -123,6 +124,18 @@ roughly 285 px wide and scrolls vertically, so modules have to be narrow and non
 server-pushed and its strings are inline, so nothing is written to the world DB or the client's quest
 cache. Accept and Decline both close it cleanly.
 
+**The gossip menu** is not a backend but the `.qr gossip` command: it opens a gossip window with a
+"Show the QR code" option, and picking it prints the code in the chat frame, so the chat geometry
+applies. The menu is only an entry point — the gossip window cannot carry the code itself, because
+the client stops opening the window once its body text passes a limit somewhere between 3 and 4 KB
+(measured in-game with `.qr grid`), and even a minimum-size code needs several times that. The quest
+frame is no alternative hand-off target either: a full-size code in its description string crashes
+the client (see Known limitations). The menu's body text travels as an `npc_text` id: the module
+pushes the greeting as an unsolicited `SMSG_NPC_TEXT_UPDATE` under a reserved id (16777200 — just
+below the core's default greeting id 16777215, and above the rest of the world DB, which stops at
+921061), which the client caches on receipt. The window's gossip source is the player themself, so
+no NPC has to exist or be targeted.
+
 ### Calibrating the geometry
 
 The three pixel values interact, and "it scanned or it didn't" is not enough feedback to tune them
@@ -149,8 +162,48 @@ against. Work in this order:
 If a code with clean geometry still refuses to scan, raise `QRCode.ErrorCorrection` from `L` to `M`
 before changing anything else.
 
+### Small size QR code recommended
+
+Compact modules keep the code small and unobtrusive. The trade-off is blank space above the code: a
+chat line always reserves the full font line height (~12 px at the default chat font) however short
+the drawn modules are, so every row leaves `lineheight − ModuleHeight` px of unfillable slack, which
+piles up as empty chat above the code.
+
+```ini
+QRCode.Chat.ModuleWidth = 4
+QRCode.Chat.ModuleHeight = 4
+QRCode.Chat.LineAdvance = -8
+```
+
+![A compact QR code drawn in the chat frame](images/qr-code-in-chat.png)
+
+### Max size QR code recommended
+
+Making each module as tall as the chat line itself eliminates the blank space entirely —
+`LineAdvance = ModuleHeight` collapses the per-row offset to zero and every line is fully filled.
+The code comes out ~300 px wide, so the chat frame must be wide enough: a wrapped row destroys the
+grid. If thin seams appear between rows, the real line spacing is slightly larger than the module:
+lower `LineAdvance` by 1; if rows overlap, raise it. `ModuleWidth` only affects width — the blank
+space depends on `ModuleHeight` alone.
+
+```ini
+QRCode.Chat.ModuleWidth = 12
+QRCode.Chat.ModuleHeight = 12
+QRCode.Chat.LineAdvance = 12
+```
+
+![A full-height QR code drawn in the chat frame](images/qr-code-in-chat-fullheight.png)
+
 ## Known limitations
 
+- **The gossip window cannot display a code directly.** The client silently refuses to open a gossip
+  window whose body text passes a limit between 3 and 4 KB — a 7×7 `.qr grid` checkerboard opens,
+  an 8×8 does not — and a minimum-size code needs several times that. This is why the gossip backend
+  is a menu handing off to chat rather than a display surface of its own.
+- **The quest backend is experimental and can crash the client.** A full-size code (~12 KB of
+  escapes) in the quest description string crashed the 3.3.5 client outright, and the safe ceiling
+  has not been measured. If you want to use it, calibrate upward from small `.qr grid` sizes with
+  `QRCode.Backend = 2` and expect crashes along the way.
 - **Chat timestamps break the chat backend.** A player with timestamps enabled gets a prefix on every
   line, which shifts each QR row sideways relative to the last. This is a client setting; the server
   cannot override it. Turn timestamps off before scanning.

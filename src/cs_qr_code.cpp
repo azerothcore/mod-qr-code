@@ -25,6 +25,7 @@
 #include "QrRenderer.h"
 #include "ScriptMgr.h"
 
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -148,6 +149,39 @@ namespace
         else
             QrDelivery::SendChat(handler, grid);
     }
+
+    /// Validates, encodes and renders one payload against @p geometry. An empty optional
+    /// means the failure has already been reported to @p handler.
+    std::optional<std::string> BuildQrGrid(ChatHandler* handler, std::string const& text,
+        QrRenderGeometry const& geometry)
+    {
+        if (text.size() > sQrConfig->MaxInputLength)
+        {
+            handler->SendErrorMessage("Input is {} bytes, over the {} byte QRCode.MaxInputLength limit.",
+                text.size(), sQrConfig->MaxInputLength);
+            return std::nullopt;
+        }
+
+        std::optional<QrBitmap> const bitmap = EncodeQr(text, sQrConfig->MaxVersion, sQrConfig->Ecc);
+        if (!bitmap)
+        {
+            // The encoder owns capacity, so the limit quoted here is measured from it
+            // rather than from a second table that could drift out of agreement with it.
+            handler->SendErrorMessage("'{}' does not fit a version {} code at ECC {} (max {} bytes).",
+                text, sQrConfig->MaxVersion, QrEccName(sQrConfig->Ecc),
+                MaxQrPayloadBytes(sQrConfig->MaxVersion, sQrConfig->Ecc));
+            return std::nullopt;
+        }
+
+        QrRenderResult const result = RenderQr(*bitmap, geometry);
+        if (result.error != QrRenderError::None)
+        {
+            ReportRenderError(handler, result, geometry);
+            return std::nullopt;
+        }
+
+        return result.text;
+    }
 }
 
 class qr_code_commandscript : public CommandScript
@@ -159,9 +193,10 @@ public:
     {
         static ChatCommandTable qrTable =
         {
-            { "probe", HandleQrProbeCommand, SEC_GAMEMASTER, Console::No },
-            { "grid",  HandleQrGridCommand,  SEC_GAMEMASTER, Console::No },
-            { "",      HandleQrCommand,      SEC_GAMEMASTER, Console::No },
+            { "probe",  HandleQrProbeCommand,  SEC_GAMEMASTER, Console::No },
+            { "grid",   HandleQrGridCommand,   SEC_GAMEMASTER, Console::No },
+            { "gossip", HandleQrGossipCommand, SEC_GAMEMASTER, Console::No },
+            { "",       HandleQrCommand,       SEC_GAMEMASTER, Console::No },
         };
 
         static ChatCommandTable commandTable =
@@ -185,33 +220,38 @@ public:
             return false;
         }
 
-        if (text.size() > sQrConfig->MaxInputLength)
+        std::optional<std::string> const grid = BuildQrGrid(handler, text, sQrConfig->ActiveGeometry());
+        if (!grid)
+            return false;
+
+        Deliver(handler, player, *grid, QrDelivery::EscapeUiSequences(TruncateUtf8(text, QR_TITLE_MAX_LENGTH)));
+        return true;
+    }
+
+    /// Same pipeline as the bare `.qr`, but delivered through the gossip menu: a gossip
+    /// window opens with a "Show the QR code" option, and picking it prints the code in
+    /// the chat frame. The window needs no NPC - the player is its own gossip source.
+    /// The indirection exists because the gossip body text itself caps out between 3
+    /// and 4 KB client-side, far below what a QR grid needs; the grid therefore renders
+    /// at the chat geometry, since chat is where it ends up.
+    static bool HandleQrGossipCommand(ChatHandler* handler, Tail payload)
+    {
+        Player* player = AcquirePlayer(handler);
+        if (!player)
+            return false;
+
+        std::string const text(payload);
+        if (text.empty())
         {
-            handler->SendErrorMessage("Input is {} bytes, over the {} byte QRCode.MaxInputLength limit.",
-                text.size(), sQrConfig->MaxInputLength);
+            handler->SendErrorMessage("Usage: .qr gossip <text>");
             return false;
         }
 
-        std::optional<QrBitmap> const bitmap = EncodeQr(text, sQrConfig->MaxVersion, sQrConfig->Ecc);
-        if (!bitmap)
-        {
-            // The encoder owns capacity, so the limit quoted here is measured from it
-            // rather than from a second table that could drift out of agreement with it.
-            handler->SendErrorMessage("'{}' does not fit a version {} code at ECC {} (max {} bytes).",
-                text, sQrConfig->MaxVersion, QrEccName(sQrConfig->Ecc),
-                MaxQrPayloadBytes(sQrConfig->MaxVersion, sQrConfig->Ecc));
+        std::optional<std::string> const grid = BuildQrGrid(handler, text, sQrConfig->ChatGeometry);
+        if (!grid)
             return false;
-        }
 
-        QrRenderGeometry const& geometry = sQrConfig->ActiveGeometry();
-        QrRenderResult const result = RenderQr(*bitmap, geometry);
-        if (result.error != QrRenderError::None)
-        {
-            ReportRenderError(handler, result, geometry);
-            return false;
-        }
-
-        Deliver(handler, player, result.text, QrDelivery::EscapeUiSequences(TruncateUtf8(text, QR_TITLE_MAX_LENGTH)));
+        QrDelivery::SendGossipQrMenu(player, *grid);
         return true;
     }
 

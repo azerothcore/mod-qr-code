@@ -39,6 +39,22 @@ namespace QrDelivery
     /// the accept handler down its "object == _player" early-out.
     void SendQuestFrame(Player* player, std::string const& title, std::string const& grid);
 
+    /// Opens a player-sourced gossip menu with a "Show the QR code" option; picking it
+    /// delivers the grid as system chat.
+    ///
+    /// SMSG_GOSSIP_MESSAGE carries no body text - only an npc_text id the client
+    /// resolves against its local cache - so the menu's greeting is pushed first as an
+    /// unsolicited SMSG_NPC_TEXT_UPDATE under a reserved id; each call overwrites the
+    /// previous entry. The window's source is the player, so no NPC has to exist or be
+    /// targeted.
+    ///
+    /// The grid cannot ride in the window itself: the client stops opening a gossip
+    /// window somewhere between 3 and 4 KB of body text, and a full-size grid in the
+    /// quest-details string crashes it outright, which is why the hand-off target is
+    /// chat. The grid is parked per player until the option is picked, the window is
+    /// closed, or the player logs out.
+    void SendGossipQrMenu(Player* player, std::string const& grid);
+
     /// Doubles every '|' so a payload echo cannot inject UI escape sequences of its own.
     std::string EscapeUiSequences(std::string_view text);
 }

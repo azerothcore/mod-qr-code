@@ -13,10 +13,13 @@
 #        Default:     1
 #
 #    QRCode.Backend
-#        Description: Where the generated code is drawn.
+#        Description: Where the generated code is drawn by the bare ".qr" command. The gossip menu
+#                     is not a backend: it is the ".qr gossip" command, which always prints via
+#                     chat after its "Show the QR code" option is picked.
 #                     1 - system chat, one message per module row. Resizable frame, no width cap.
-#                     2 - a quest details frame. Fixed-width parchment pane, so the code has to be
-#                         smaller and its modules are not square.
+#                     2 - a quest details frame. WARNING: a full-size code in the quest description
+#                         has crashed the 3.3.5 client outright; treat this backend as experimental
+#                         and calibrate upward from small ".qr grid" sizes before trusting it.
 #        Default:     1
 #
 #    QRCode.ErrorCorrection
