@@ -1,0 +1,197 @@
+[worldserver]
+
+###################################################################################################
+#    QR code module config
+###################################################################################################
+#
+#    Every pixel value below is a client-side measurement. They are config options rather than
+#    constants so they can be retuned with ".reload config" - no restart and no rebuild - using the
+#    ".qr grid" and ".qr probe" diagnostics.
+#
+#    QRCode.Enable
+#        Description: Enables/disables the .qr command family.
+#        Default:     1
+#
+#    QRCode.Backend
+#        Description: Where the generated code is drawn.
+#                     1 - system chat, one message per module row. Resizable frame, no width cap.
+#                     2 - a quest details frame. Fixed-width parchment pane, so the code has to be
+#                         smaller and its modules are not square.
+#        Default:     1
+#
+#    QRCode.ErrorCorrection
+#        Description: QR error correction level: L, M, Q or H.
+#                     L is the theoretical fit - the display is pixel-perfect, so the failure mode
+#                     is geometric rather than noisy - but raising it is the second lever to pull if
+#                     residual row seams stop codes from scanning.
+#        Default:     "L"
+#
+#    QRCode.MaxVersion
+#        Description: Largest QR version the encoder may pick (1-40). Larger versions hold more
+#                     bytes but draw wider. Geometry caps this well below 40: the quest frame
+#                     cannot show past version 3, and chat past version 4 is unwieldy.
+#        Default:     3
+#
+#    QRCode.MaxInputLength
+#        Description: Longest accepted input, in bytes, checked before encoding purely to bound the
+#                     work done. The encoder remains the authority on real capacity and rejects
+#                     shorter input that still does not fit.
+#        Default:     96
+#
+#    QRCode.MaxPayloadBytes
+#        Description: Hard cap on the generated escape-sequence string, in bytes. A version 1 code
+#                     runs to roughly 15 KB and a version 3 one to 27 KB, at about 1 KB per chat
+#                     line, so a low value here rejects everything. Measure the client's real
+#                     inbound limit with ".qr probe" first and set this below it.
+#        Default:     32000
+#
+#    QRCode.CooldownSeconds
+#        Description: Per-player cooldown on the .qr commands. Each invocation ships tens of
+#                     kilobytes, so this is what stops the command being a bandwidth amplifier.
+#                     Set to 0 while tuning geometry, then put it back.
+#        Default:     5
+#
+#    QRCode.AnchorBottom
+#        Description: Which end of the grid keeps its natural position.
+#
+#                     A row's offset moves only what is drawn, never the height its text line
+#                     reserves, so modules shorter than a line always leave slack somewhere -
+#                     and the smaller the modules, the more of it.
+#
+#                     1 puts the last row on its own line, so the code sits just above the chat
+#                     input box and the slack lands above it, reading as ordinary empty chat.
+#                     0 puts the first row on its own line, leaving the code floating high in the
+#                     frame with a conspicuous gap underneath.
+#        Default:     1
+#
+###################################################################################################
+#
+#    MODULE TEXTURES
+#
+#    The 3.3.5a client accepts the vertex-colour arguments of the |T escape and then discards
+#    them, so a module cannot be tinted - its colour has to come from a texture that already is
+#    that colour. Which client textures are usable is not something the server can know, so both
+#    are settings.
+#
+#    Paths take forward or back slashes and no file extension. Preview any candidate in-game
+#    without restarting anything:
+#
+#        /run P=string.char(124) DEFAULT_CHAT_FRAME:AddMessage(P.."TInterface/Buttons/WHITE8X8:24:24"..P.."t")
+#
+#    QRCode.DarkTexture
+#        Description: Texture drawn for dark modules. The default is a dark stone panel background.
+#        Default:     "Interface/DialogFrame/UI-DialogBox-Background"
+#
+#    QRCode.DarkTexCoords
+#        Description: Sub-rect of the dark texture, as "texWidth:texHeight:left:right:top:bottom".
+#                     The client divides the edges by the stated dimensions, so the default reads
+#                     as "the middle 10%" whatever the texture's real size is.
+#                     Cropping matters for a patterned texture: stretching the whole thing across
+#                     a module shows the pattern, while a small flat crop gives an even block, and
+#                     evenness is what a decoder needs. Leave empty to draw the whole texture.
+#        Default:     "100:100:45:55:45:55"
+#
+#    QRCode.LightTexture
+#        Description: Texture drawn for light modules, including the quiet zone.
+#                     "Interface/ChatFrame/ChatFrameBackground" is an equally good white.
+#        Default:     "Interface/Buttons/WHITE8X8"
+#
+#    QRCode.LightTexCoords
+#        Description: Sub-rect of the light texture, same format as QRCode.DarkTexCoords.
+#                     Empty by default - WHITE8X8 is a flat colour, so there is nothing to crop.
+#        Default:     ""
+#
+###################################################################################################
+#
+#    CHAT BACKEND GEOMETRY
+#
+#    The chat frame is resizable by the player, so there is no width to fit inside, and modules can
+#    stay square.
+#
+#    The catch is that the chat font sets the row spacing, at roughly 16 px, and it does not shrink
+#    when the modules do. Below that height every row opens a gap, which LineAdvance exists to close.
+#
+#    QRCode.Chat.ModuleWidth
+#        Description: Drawn width of one module, in pixels. A version 1 code is 29 modules across
+#                     including the quiet zone, so 7 px lands at 203 px and 14 px at 406 px. Rows
+#                     wider than the chat frame wrap, which destroys the grid.
+#        Default:     7
+#
+#    QRCode.Chat.ModuleHeight
+#        Description: Drawn height of one module, in pixels. Keep it equal to ModuleWidth for square
+#                     modules.
+#        Default:     7
+#
+#    QRCode.Chat.LineAdvance
+#        Description: Controls the per-row vertical offset, which is (LineAdvance - ModuleHeight)
+#                     applied cumulatively down the grid.
+#
+#                     Read it as a dial, not as a measurement: the client treats a positive offset
+#                     as upward, so a LOWER value pulls the rows TIGHTER together, and negative
+#                     values are normal. The default of 0 lifts each row by 7 px, which cancels the
+#                     chat font's spacing and lands the rows flush - measured in-game, not derived.
+#
+#                     Tune with ".qr grid": gaps left between rows means go lower, rows overlapping
+#                     or squashing together means go higher. Changing ModuleHeight moves the right
+#                     value with it, so retune after any size change.
+#        Default:     0
+#
+#    QRCode.Chat.MaxRowWidth
+#        Description: Widest row to allow, in pixels; 0 for no limit. Chat has no width cap.
+#        Default:     0
+#
+###################################################################################################
+#
+#    QUEST BACKEND GEOMETRY
+#
+#    The quest description pane is roughly 285 px wide and scrolls vertically, so modules have to be
+#    narrow and non-square. That is fine for decoding - a uniform aspect scale is an affine
+#    transform, which decoders resolve from the three finder patterns - but it does mean the row
+#    offset is doing real work here.
+#
+#    QRCode.Quest.ModuleWidth
+#        Description: Drawn width of one module, in pixels. At version 3 the code is 37 modules
+#                     wide including the quiet zone, so 7 px lands at 259 px.
+#        Default:     7
+#
+#    QRCode.Quest.ModuleHeight
+#        Description: Drawn height of one module, in pixels. Below LineAdvance, which is what makes
+#                     the row offset necessary.
+#        Default:     9
+#
+#    QRCode.Quest.LineAdvance
+#        Description: Same dial as QRCode.Chat.LineAdvance, lower being tighter. This default is
+#                     extrapolated from the chat measurement, not measured in the quest pane, so
+#                     expect to tune it with ".qr grid" after switching backends.
+#        Default:     2
+#
+#    QRCode.Quest.MaxRowWidth
+#        Description: Widest row to allow, in pixels; 0 for no limit. A row past the pane width
+#                     wraps, which destroys the grid, so the command is refused instead.
+#        Default:     285
+#
+###################################################################################################
+
+QRCode.Enable = 1
+QRCode.Backend = 1
+QRCode.ErrorCorrection = "L"
+QRCode.MaxVersion = 3
+QRCode.MaxInputLength = 96
+QRCode.MaxPayloadBytes = 32000
+QRCode.CooldownSeconds = 5
+QRCode.AnchorBottom = 1
+
+QRCode.DarkTexture = "Interface/DialogFrame/UI-DialogBox-Background"
+QRCode.DarkTexCoords = "100:100:45:55:45:55"
+QRCode.LightTexture = "Interface/Buttons/WHITE8X8"
+QRCode.LightTexCoords = ""
+
+QRCode.Chat.ModuleWidth = 7
+QRCode.Chat.ModuleHeight = 7
+QRCode.Chat.LineAdvance = 0
+QRCode.Chat.MaxRowWidth = 0
+
+QRCode.Quest.ModuleWidth = 7
+QRCode.Quest.ModuleHeight = 9
+QRCode.Quest.LineAdvance = 2
+QRCode.Quest.MaxRowWidth = 285
