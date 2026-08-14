@@ -7,6 +7,8 @@ patch, no client-side files of any kind.
 .qr https://www.azerothcore.org
 ```
 
+![A QR code drawn in the chat frame of an unmodified 3.3.5a client](images/qr-code-in-chat.png)
+
 ## How it works
 
 The server cannot inject Lua or define client frames, but it can send text containing UI escape
