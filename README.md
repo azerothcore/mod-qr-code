@@ -58,7 +58,7 @@ module ships no SQL.
 
 ```bash
 cd modules
-git clone <repository-url> mod-qr-code
+git clone https://github.com/azerothcore/mod-qr-code
 cd ..
 # reconfigure and rebuild the core as usual
 ```
