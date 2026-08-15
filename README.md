@@ -52,7 +52,7 @@ an affine transform, which decoders resolve from the three finder patterns.
 ## Requirements
 
 None beyond AzerothCore itself. The QR generator is vendored, so there is no new dependency, and the
-module ships no SQL.
+only SQL shipped is one `command` table row, for `.account 2fa qrcode`.
 
 ## Installation
 
@@ -73,9 +73,93 @@ Then edit `qrcode.conf` in your config directory (the build copies `conf/qrcode.
 | `.qr gossip <text>` | Game Master | Opens a gossip menu whose "Show the QR code" option presents the code, whatever the backend. |
 | `.qr grid [rows] [cols]` | Game Master | Checkerboard at the active geometry, no QR encoding. Defaults to 10×10. |
 | `.qr probe <n>` | Game Master | Draws one line of `n` alternating modules ending in a three-module black sentinel. |
+| `.account 2fa qrcode [token]` | Player | Draws a new two-factor key as a code to scan; run again with a token to enable it. **Off by default** — see below. |
 
 All of them need an in-game session; none work from the console. Both sides of `grid` are optional —
 a single argument means a square of that size.
+
+### Two-factor setup by QR
+
+**This command ships disabled (`QRCode.TwoFA.Enable = 0`) and most realms should leave it that way.**
+A two-factor payload needs a version 4 symbol, which is 35 chat lines, and a default chat frame shows
+fewer than that — the player gets the bottom two thirds of a code and no way to scan it, which is
+worse than never being offered the command. Turn it on only after `.qr grid 35` fits in your frame;
+see the chat-lines section below for what buys the room. Until then `.account 2fa setup` is the
+working flow, and the command refuses with a message saying so.
+
+The core's `.account 2fa setup` prints a 32-character Base32 key and asks the player to type it into
+an authenticator app before confirming with a token. `.account 2fa qrcode` is the same two steps with
+the typing removed:
+
+```
+.account 2fa qrcode          -- draws the key as a code; scan it
+.account 2fa qrcode 123456   -- the token your app now shows; this is what enables 2FA
+```
+
+**Nothing is written to the account until the token checks out.** A key stored on the draw alone
+would lock the player out at the next login whenever the scan silently failed — recoverable only by a
+GM running `.account set 2fa <account> off`. The key is printed as text under the code too, for
+authenticator apps that are easier to type into than to point at a screen. `.account 2fa remove
+<token>` is unaffected and still works.
+
+Redrawing hands out the same key until it is confirmed, so a player who scanned the first code and
+then asked for it again is not left holding an entry no token can complete. Pending keys live in
+memory only and are dropped on restart; draw again after one.
+
+**It replaces `.account 2fa setup`, it does not extend it.** The core keeps the key that command
+offers in a `static` local to its own handler, so no module can render *that* key; the one here is a
+second, independent secret, and its token only completes this command. Both write the same
+`account.totp_secret` column and neither runs once it is set, so the two flows cannot collide — a
+player takes one or the other. Admins who want only the QR flow visible can raise `account 2fa setup`
+in the `command` table.
+
+Once two-factor is enabled the command refuses, because re-showing a live secret would turn any
+unattended session into a cloned authenticator.
+
+The payload is an [otpauth URI](https://github.com/google/google-authenticator/wiki/Key-Uri-Format)
+carrying only the label and the secret. AzerothCore's TOTP parameters — 6 digits, SHA1, 30 seconds —
+are the format's defaults and are left out, as is the redundant `issuer` query parameter, purely to
+keep the byte count down.
+
+**It needs room.** Even a two-character account name with no issuer at all comes to 57 bytes, past
+the 53 a version 3 code holds, and a realm name plus a long account name reaches version 5:
+
+| Label | URI bytes | Version | Modules | Rendered | Row width at 7 px |
+| --- | --- | --- | --- | --- | --- |
+| `AzerothCore:HELIAS` | 73 | 4 | 33 | 36 KB | 245 px |
+| `My Test Realm:AVERYLONGACCOUNT` | 89 | 5 | 37 | 46 KB | 273 px |
+
+The row is wider than the symbol because of the quiet zone on each side.
+
+The shipped `QRCode.MaxVersion = 5` and `QRCode.MaxPayloadBytes = 48000` cover both rows. Both are
+ceilings rather than sizes — every payload still renders at the smallest version that holds it — so
+if you have lowered either from an earlier release, raise them back or the command fails with a
+config error instead of drawing anything.
+
+**The binding constraint is chat lines, not pixels.** One QR row is one chat line, and the whole code
+has to be on screen at once — a version 4 symbol is 33 modules plus the quiet zone on each side, so
+35 lines at the shipped `QRCode.QuietZone = 1`, and anything past the top of the frame is simply not
+there to scan. Shrinking `ModuleHeight` does not help: a chat line reserves the full font line height
+whatever is drawn in it. What does help is a smaller chat font (right-click the chat tab → Font Size)
+and a taller chat frame. `.qr grid 35` tells you in one command whether 35 lines fit.
+
+The quiet zone is the reason the default is 1 rather than the 4 the spec asks for: each module of
+border is two more lines to find room for. Raise it if a code will not scan.
+
+Note that `LineAdvance` is tuned against the font's line spacing, so changing the font size means
+retuning it: the flush value is `2 × ModuleHeight − line height`, and `.qr grid` shows whether you
+got it.
+
+Also worth having is a chat frame wide enough for the row: a wrapped row destroys the grid.
+`QRCode.TwoFA.Issuer` shortens the label if the realm name is long, and every byte saved there is
+worth having, since crossing a version boundary costs four more rows. The quest backend is no help
+here either: at `QuietZone = 1` a version 4 code is 245 px wide and does fit the 285 px pane, but the
+pane is only about 300 px tall against the ~490 px those 35 lines need, and it is the backend that
+has crashed the client at full size.
+
+The secret is drawn into the chat frame in the clear, exactly as `.account 2fa setup` prints it in the
+clear. Anyone watching the screen or the stream can enrol the same authenticator, so it is worth
+telling players to run this alone.
 
 ### Opening `.qr` to regular players
 
@@ -101,9 +185,12 @@ before first use:
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `QRCode.Backend` | 1 | 1 = system chat, 2 = quest details frame |
-| `QRCode.MaxVersion` | 3 | Caps QR size. The quest frame cannot show past 3; chat past 4 is unwieldy |
-| `QRCode.MaxPayloadBytes` | 32000 | Hard cap on the generated string |
+| `QRCode.MaxVersion` | 5 | Caps QR size. The quest frame cannot show past 3; chat past 5 is unwieldy |
+| `QRCode.MaxPayloadBytes` | 48000 | Hard cap on the generated string |
 | `QRCode.CooldownSeconds` | 5 | Per-player rate limit. Set to 0 while calibrating |
+| `QRCode.QuietZone` | 1 | Light border in modules, 1-4. Each one costs two chat lines; the spec asks for 4 |
+| `QRCode.TwoFA.Enable` | 0 | Offers `.account 2fa qrcode`. Off until a 35-line code fits your chat frame |
+| `QRCode.TwoFA.Issuer` | "" | Label shown by the authenticator app; empty means the realm name |
 | `QRCode.DarkTexture` / `QRCode.LightTexture` | see conf | Texture per module colour — tinting is impossible |
 | `QRCode.DarkTexCoords` / `QRCode.LightTexCoords` | see conf | Sub-rect crop, `texW:texH:left:right:top:bottom` |
 | `QRCode.Chat.ModuleWidth` / `.ModuleHeight` | 7 | Module size — a version 1 code lands at ~203 px |
@@ -112,6 +199,13 @@ before first use:
 
 Every pixel value is a config option rather than a constant, so the whole module retunes with
 `.reload config` — no restart, no rebuild.
+
+**Turning the code is not a way out of the height problem**, tempting as it looks when the frame is
+wider than it is tall. A QR symbol is square, so a quarter turn gives back a square of the same side:
+the same 35 rows, the same 35 chat lines. Off-axis angles are worse than useless — a 45° turn needs a
+bounding box √2 larger, taking 35 rows to about 50, and the `|T` escape places an axis-aligned quad
+anyway, so the turned modules would have to be rasterised back onto square blocks, staircase edges
+being exactly what a scanner fails on.
 
 ### Backends
 
@@ -196,28 +290,52 @@ QRCode.Chat.LineAdvance = 12
 
 ## Known limitations
 
-- **The gossip window cannot display a code directly.** The client silently refuses to open a gossip
-  window whose body text passes a limit between 3 and 4 KB — a 7×7 `.qr grid` checkerboard opens,
-  an 8×8 does not — and a minimum-size code needs several times that. This is why the gossip backend
-  is a menu handing off to chat rather than a display surface of its own.
-- **The quest backend is experimental and can crash the client.** A full-size code (~12 KB of
-  escapes) in the quest description string crashed the 3.3.5 client outright, and the safe ceiling
-  has not been measured. If you want to use it, calibrate upward from small `.qr grid` sizes with
-  `QRCode.Backend = 2` and expect crashes along the way.
+- **Chat is the only surface known to hold a code, and not because its buffer is bigger.** Every
+  other frame takes the whole grid as one string, and no string surface measured so far holds more
+  than about 8 KB, against 31 KB for the cheapest full code. Chat wins by sending 35 separate ~1 KB
+  messages. Ceilings below were measured by rendering checkerboards of known size into each surface
+  and finding where the frame goes blank:
+
+  | Surface | Ceiling | Fits a code? | Evidence |
+  | --- | --- | --- | --- |
+  | Chat | ~1 KB per line, 35 lines | yes | the only one that splits the grid across many strings |
+  | Page text | 32,766 B (one packet per page) | unmeasured | `SMSG_PAGE_TEXT_QUERY_RESPONSE` carries one page alone |
+  | GM ticket response | 3,999 B | no | `GmTicket::SendResponse` sends 4 chunks of 3,999 but the client renders only the first — byte 3,999 shows up on screen as raw `\|T` text |
+  | Mail body | ~8 KB | no | 5,929 B renders, 8,543 B is blank — matches the `max 8000` note in `MailHandler.cpp` |
+  | Quest text | 2.9-5.9 KB | no | 7×7 and 10×5 render, 10×10 is blank |
+  | Gossip body | 3.4-4.4 KB | no | 7×7 opens the window, 8×8 does not |
+  | Calendar event | 255 B | no | `varchar(255)` column, and `CalendarHandler.cpp:248` rejects longer |
+
+  Oversized text fails silently and blank, never with an error. Mail has a second cap on top: the
+  server drops any mail that would push `SMSG_MAIL_LIST_RESULT` past `MAX_NETCLIENT_PACKET_SIZE`
+  (32,766), which the client reports as "your inbox is full" — and because every mail in the inbox
+  shares that one packet, a large body can push the others out of the list.
+
+  For scale: the smallest QR that exists — version 1, 21 modules, drawn with the cheapest texture
+  paths — is 9,234 bytes, above every ceiling in the table except chat's. That is why the gossip
+  backend is a menu handing off to chat rather than a display surface of its own, and why no mail,
+  quest or ticket backend exists.
+- **The quest backend cannot show a full-size code, and can crash the client trying.** A full-size
+  code in the quest description crashed the 3.3.5 client outright, and the ceiling above puts a real
+  code an order of magnitude past what quest text holds anyway. It is kept for small payloads and
+  calibration only: start from small `.qr grid` sizes with `QRCode.Backend = 2`.
 - **Chat timestamps break the chat backend.** A player with timestamps enabled gets a prefix on every
   line, which shifts each QR row sideways relative to the last. This is a client setting; the server
   cannot override it. Turn timestamps off before scanning.
-- **A code is large.** A minimum-size symbol runs to roughly 15 KB of escape sequences and a version 3
-  one to 27 KB, at about 1 KB per chat line. That is why the cooldown exists and why
-  `MaxPayloadBytes` defaults high — a 12000 byte cap would reject every code. Longer texture paths
-  cost real bytes here, so a shorter usable path is a genuine saving.
-- **Capacity is small.** Geometry, not the encoder, is the binding constraint: version 3 at ECC L
-  holds 53 bytes. Long URLs need shortening before they will fit.
+- **A code is large.** A minimum-size symbol runs to roughly 15 KB of escape sequences, a version 3
+  one to 27 KB and a version 4 one to 37 KB, at about 1 KB per chat line. That is why the cooldown
+  exists and why `MaxPayloadBytes` defaults high — a 12000 byte cap would reject every code.
+  Texture paths are charged on every run, so they are worth real bytes: dropping
+  `QRCode.DarkTexCoords` and using the shorter `Interface/Tooltips/UI-Tooltip-Background` takes the
+  same version 4 code from 38,829 to 31,104 bytes, at the cost of a greyer dark module.
+- **Capacity is small.** Geometry, not the encoder, is the binding constraint: version 5 at ECC L
+  holds 106 bytes, version 3 only 53. Long URLs need shortening before they will fit.
 
 ## Tests
 
-The encoder wrapper and the renderer are pure functions with no server, session or client dependency,
-and `mod-qr-code.cmake` registers their tests with the core's `unit_tests` target:
+The encoder wrapper, the renderer and the otpauth URI builder are pure functions with no server,
+session or client dependency, and `mod-qr-code.cmake` registers their tests with the core's
+`unit_tests` target:
 
 ```bash
 cmake --build build --target unit_tests

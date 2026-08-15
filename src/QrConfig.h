@@ -46,9 +46,23 @@ public:
     bool      Enabled         = true;
     QrBackend Backend         = QrBackend::Chat;
     QrEcc     Ecc             = QrEcc::Low;
-    uint32    MaxVersion      = 3;
+    uint32    MaxVersion      = 5;
     uint32    MaxInputLength  = 96;
     uint32    CooldownSeconds = 5;
+
+    /// Whether `.account 2fa qrcode` is offered at all.
+    ///
+    /// Off by default because the command is only usable where the whole code fits on
+    /// screen at once, and a 2FA payload needs a version 4 symbol - 35 chat lines, more
+    /// than a default chat frame shows. A code the player can only see two thirds of is
+    /// worse than no command, so switching this on is a decision per realm, taken after
+    /// checking `.qr grid 35` fits.
+    bool TwoFAEnabled = false;
+
+    /// Issuer shown by the authenticator app for `.account 2fa qrcode`. Empty means the
+    /// realm name, which is the sensible label but not always a short one - and the label
+    /// is part of a payload that has very little room left.
+    std::string TwoFAIssuer;
 
     QrRenderGeometry ChatGeometry;
     QrRenderGeometry QuestGeometry;

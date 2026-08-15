@@ -186,16 +186,19 @@ TEST(QrRendererTest, RowOffsetCollapsesWhenModuleHeightMatchesLineAdvance)
     EXPECT_EQ(std::string::npos, result.text.find(":0:-"));
 }
 
-/// The quiet zone is four modules on all four sides and is drawn as real light textures,
-/// never left blank: a blank line would take the frame's own background colour, which is
-/// dark in chat and would break decoding there.
+/// The quiet zone pads all four sides and is drawn as real light textures, never left
+/// blank: a blank line would take the frame's own background colour, which is dark in chat
+/// and would break decoding there.
 TEST(QrRendererTest, PadsTheQuietZoneOnAllFourSidesWithRealTextures)
 {
     QrBitmap bitmap;
     bitmap.size = 1;
     bitmap.modules = { true };
 
-    QrRenderResult const result = RenderQr(bitmap, SquareGeometry());
+    QrRenderGeometry geometry = SquareGeometry();
+    geometry.quietZone = QR_QUIET_ZONE_MODULES;
+
+    QrRenderResult const result = RenderQr(bitmap, geometry);
 
     ASSERT_EQ(QrRenderError::None, result.error);
 
@@ -214,6 +217,41 @@ TEST(QrRendererTest, PadsTheQuietZoneOnAllFourSidesWithRealTextures)
 
     // The data row keeps four light modules on each side of the single dark one.
     EXPECT_EQ(Light(40, 14, 0) + Dark(10, 14, 0) + Light(40, 14, 0), rows[QR_QUIET_ZONE_MODULES]);
+}
+
+/// Every module of border is two more chat lines to find room for, and frame height is what
+/// this module runs out of first, so the default sits below the spec's four.
+TEST(QrRendererTest, DefaultsToTheNarrowQuietZone)
+{
+    QrBitmap bitmap;
+    bitmap.size = 1;
+    bitmap.modules = { true };
+
+    QrRenderResult const result = RenderQr(bitmap, SquareGeometry());
+
+    ASSERT_EQ(QrRenderError::None, result.error);
+    ASSERT_EQ(std::size_t(1 + 2 * QR_QUIET_ZONE_DEFAULT_MODULES), SplitRows(result.text).size());
+}
+
+/// The quiet zone is configurable because the trade it makes - decoder margin against chat
+/// lines - can only be settled against a real frame.
+TEST(QrRendererTest, HonoursAConfiguredQuietZone)
+{
+    QrBitmap bitmap;
+    bitmap.size = 1;
+    bitmap.modules = { true };
+
+    QrRenderGeometry geometry = SquareGeometry();
+    geometry.quietZone = 2;
+
+    QrRenderResult const result = RenderQr(bitmap, geometry);
+
+    ASSERT_EQ(QrRenderError::None, result.error);
+
+    std::vector<std::string> const rows = SplitRows(result.text);
+    ASSERT_EQ(std::size_t(5), rows.size());
+    EXPECT_EQ(Light(50, 14, 0), rows[0]);
+    EXPECT_EQ(Light(20, 14, 0) + Dark(10, 14, 0) + Light(20, 14, 0), rows[2]);
 }
 
 /// A row wider than the frame wraps, which turns the grid into noise. Refusing up front

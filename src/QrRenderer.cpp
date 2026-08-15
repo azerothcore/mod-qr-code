@@ -118,13 +118,14 @@ QrRenderResult RenderQr(QrBitmap const& bitmap, QrRenderGeometry const& geometry
     if (!bitmap.size)
         return result;
 
-    std::uint32_t const padded = bitmap.size + 2 * QR_QUIET_ZONE_MODULES;
+    std::uint32_t const quietZone = geometry.quietZone;
+    std::uint32_t const padded = bitmap.size + 2 * quietZone;
 
     std::vector<bool> modules(std::size_t(padded) * padded, false);
 
     for (std::uint32_t y = 0; y < bitmap.size; ++y)
         for (std::uint32_t x = 0; x < bitmap.size; ++x)
-            modules[std::size_t(y + QR_QUIET_ZONE_MODULES) * padded + x + QR_QUIET_ZONE_MODULES] = bitmap.At(x, y);
+            modules[std::size_t(y + quietZone) * padded + x + quietZone] = bitmap.At(x, y);
 
     return RenderModuleGrid(modules, padded, padded, geometry);
 }

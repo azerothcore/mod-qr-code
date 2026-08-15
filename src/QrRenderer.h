@@ -24,8 +24,17 @@
 #include <string>
 #include <vector>
 
-/// Quiet-zone width mandated by the QR spec, in modules, on every side.
+/// Quiet-zone width mandated by the QR spec, in modules, on every side. Also the widest
+/// this module will draw: past it there is nothing left to gain, only rows to lose.
 constexpr std::uint32_t QR_QUIET_ZONE_MODULES = 4;
+
+/// Quiet zone drawn by default, in modules.
+///
+/// Below the spec's 4 on purpose. The border is charged in chat lines like everything else -
+/// each module of it is two more rows the frame has to show at once - and the frame running
+/// out of height is the failure this module actually hits, while decoders in practice manage
+/// on one module of margin against a clean light background.
+constexpr std::uint32_t QR_QUIET_ZONE_DEFAULT_MODULES = 1;
 
 /// How one colour of module is drawn.
 ///
@@ -60,6 +69,14 @@ struct QrRenderGeometry
 
     std::uint32_t moduleWidth  = 14; ///< Drawn width of one module, in pixels.
     std::uint32_t moduleHeight = 14; ///< Drawn height of one module, in pixels.
+
+    /// Light border drawn on every side, in modules.
+    ///
+    /// The spec mandates QR_QUIET_ZONE_MODULES and decoders are calibrated for it, but the
+    /// border is charged in chat lines like everything else: each module of it costs two
+    /// rows the frame has to show at once, and height is what this module runs out of. The
+    /// default trades margin for rows; raise it if a code will not scan.
+    std::uint32_t quietZone = QR_QUIET_ZONE_DEFAULT_MODULES;
 
     /// Drives the per-row vertical offset, applied cumulatively as
     /// -row * (lineAdvance - moduleHeight).
@@ -110,7 +127,7 @@ struct QrRenderResult
 QrRenderResult RenderModuleGrid(std::vector<bool> const& modules, std::uint32_t width, std::uint32_t height,
     QrRenderGeometry const& geometry);
 
-/// Renders a QR symbol with the spec-mandated 4-module quiet zone on all four sides.
+/// Renders a QR symbol with @p geometry's quiet zone on all four sides.
 ///
 /// The quiet zone is drawn as real light textures rather than left blank: a blank line
 /// takes the frame's own background colour, which is dark in the chat frame and would

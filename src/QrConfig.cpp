@@ -78,15 +78,17 @@ void QrConfig::Load()
         Ecc = QrEcc::Low;
     }
 
-    MaxVersion = sConfigMgr->GetOption<uint32>("QRCode.MaxVersion", 3);
+    MaxVersion = sConfigMgr->GetOption<uint32>("QRCode.MaxVersion", 5);
     if (MaxVersion < 1 || MaxVersion > 40)
     {
-        LOG_ERROR("module.qrcode", "QRCode.MaxVersion = {} is outside 1..40, falling back to 3", MaxVersion);
-        MaxVersion = 3;
+        LOG_ERROR("module.qrcode", "QRCode.MaxVersion = {} is outside 1..40, falling back to 5", MaxVersion);
+        MaxVersion = 5;
     }
 
     MaxInputLength  = sConfigMgr->GetOption<uint32>("QRCode.MaxInputLength", 96);
     CooldownSeconds = sConfigMgr->GetOption<uint32>("QRCode.CooldownSeconds", 5);
+    TwoFAEnabled    = sConfigMgr->GetOption<bool>("QRCode.TwoFA.Enable", false);
+    TwoFAIssuer     = sConfigMgr->GetOption<std::string>("QRCode.TwoFA.Issuer", "");
 
     // Chat defaults are measured in-game: 7 px square modules, and a row offset of
     // (0 - 7) that lifts each row 7 px to cancel the chat font's row spacing. The client
@@ -108,7 +110,18 @@ void QrConfig::Load()
     ChatGeometry  = LoadGeometry("QRCode.Chat", chatDefaults);
     QuestGeometry = LoadGeometry("QRCode.Quest", questDefaults);
 
-    uint32 const maxPayloadBytes = sConfigMgr->GetOption<uint32>("QRCode.MaxPayloadBytes", 32000);
+    uint32 quietZone = sConfigMgr->GetOption<uint32>("QRCode.QuietZone", QR_QUIET_ZONE_DEFAULT_MODULES);
+    if (quietZone > QR_QUIET_ZONE_MODULES)
+    {
+        LOG_ERROR("module.qrcode", "QRCode.QuietZone = {} is above the {} modules the spec asks for, "
+            "falling back to {}", quietZone, QR_QUIET_ZONE_MODULES, QR_QUIET_ZONE_MODULES);
+        quietZone = QR_QUIET_ZONE_MODULES;
+    }
+
+    ChatGeometry.quietZone  = quietZone;
+    QuestGeometry.quietZone = quietZone;
+
+    uint32 const maxPayloadBytes = sConfigMgr->GetOption<uint32>("QRCode.MaxPayloadBytes", 48000);
     ChatGeometry.maxPayloadBytes  = maxPayloadBytes;
     QuestGeometry.maxPayloadBytes = maxPayloadBytes;
 }

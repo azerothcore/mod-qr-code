@@ -30,10 +30,14 @@
 #        Default:     "L"
 #
 #    QRCode.MaxVersion
-#        Description: Largest QR version the encoder may pick (1-40). Larger versions hold more
-#                     bytes but draw wider. Geometry caps this well below 40: the quest frame
-#                     cannot show past version 3, and chat past version 4 is unwieldy.
-#        Default:     3
+#        Description: Largest QR version the encoder may pick (1-40). It is a ceiling, not a size:
+#                     every payload still renders at the smallest version that holds it, so raising
+#                     this changes nothing until something needs the room.
+#
+#                     The default covers ".account 2fa qrcode", whose link runs to 69-90 bytes and
+#                     so needs version 4 or 5. Geometry caps this well below 40 - the quest frame
+#                     cannot show past version 3, and chat past version 5 is unwieldy.
+#        Default:     5
 #
 #    QRCode.MaxInputLength
 #        Description: Longest accepted input, in bytes, checked before encoding purely to bound the
@@ -43,16 +47,50 @@
 #
 #    QRCode.MaxPayloadBytes
 #        Description: Hard cap on the generated escape-sequence string, in bytes. A version 1 code
-#                     runs to roughly 15 KB and a version 3 one to 27 KB, at about 1 KB per chat
-#                     line, so a low value here rejects everything. Measure the client's real
-#                     inbound limit with ".qr probe" first and set this below it.
-#        Default:     32000
+#                     runs to roughly 15 KB, a version 3 one to 27 KB and a version 4 one to 37 KB,
+#                     at about 1 KB per chat line, so a low value here rejects everything. Measure
+#                     the client's real inbound limit with ".qr probe" first and set this below it.
+#        Default:     48000
 #
 #    QRCode.CooldownSeconds
 #        Description: Per-player cooldown on the .qr commands. Each invocation ships tens of
 #                     kilobytes, so this is what stops the command being a bandwidth amplifier.
 #                     Set to 0 while tuning geometry, then put it back.
 #        Default:     5
+#
+#    QRCode.QuietZone
+#        Description: Light border drawn on every side of the code, in modules, 1 to 4. The QR spec
+#                     asks for 4 and decoders are calibrated against it.
+#
+#                     The default is below the spec on purpose. The border is charged in chat lines
+#                     like everything else - each module of it is two more rows the frame has to show
+#                     at once - and running out of frame height is the failure this module actually
+#                     hits: a version 4 code needs 35 lines at 1 and 41 at 4. Raise it if a code will
+#                     not scan.
+#        Default:     1
+#
+#    QRCode.TwoFA.Enable
+#        Description: Offers the ".account 2fa qrcode" command. When 0 the command refuses and
+#                     points the player at ".account 2fa setup".
+#
+#                     Off by default because it is only usable where the whole code fits on screen
+#                     at once: a two-factor payload needs a version 4 symbol, which is 35 chat lines
+#                     at QuietZone 1, more than a default chat frame shows. A player who can see two
+#                     thirds of a code is worse off than one who was never offered it.
+#
+#                     Before turning it on, check ".qr grid 35" fits in the chat frame. A smaller
+#                     chat font (right-click the chat tab, Font Size) is what buys the room, and
+#                     LineAdvance has to be retuned after changing it.
+#        Default:     0
+#
+#    QRCode.TwoFA.Issuer
+#        Description: Name the authenticator app shows above the generated tokens for
+#                     ".account 2fa qrcode". Empty means the realm name.
+#
+#                     It is worth overriding when the realm name is long: the issuer sits in a
+#                     payload with only a few bytes of slack, and going one byte over pushes the
+#                     code up a QR version, which is four more rows of chat to fit on screen.
+#        Default:     ""
 #
 #    QRCode.AnchorBottom
 #        Description: Which end of the grid keeps its natural position.
@@ -178,10 +216,13 @@
 QRCode.Enable = 1
 QRCode.Backend = 1
 QRCode.ErrorCorrection = "L"
-QRCode.MaxVersion = 3
+QRCode.MaxVersion = 5
 QRCode.MaxInputLength = 96
-QRCode.MaxPayloadBytes = 32000
+QRCode.MaxPayloadBytes = 48000
 QRCode.CooldownSeconds = 5
+QRCode.QuietZone = 1
+QRCode.TwoFA.Enable = 0
+QRCode.TwoFA.Issuer = ""
 QRCode.AnchorBottom = 1
 
 QRCode.DarkTexture = "Interface/DialogFrame/UI-DialogBox-Background"
