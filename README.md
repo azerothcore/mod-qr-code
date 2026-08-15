@@ -346,7 +346,7 @@ QRCode.Chat.LineAdvance = 12
   | Chat | ~1 KB per line, 35 lines | yes | the only one that splits the grid across many strings |
   | Page text | 32,766 B (one packet per page) | unmeasured | `SMSG_PAGE_TEXT_QUERY_RESPONSE` carries one page alone |
   | GM ticket response | 3,999 B | no | `GmTicket::SendResponse` sends 4 chunks of 3,999 but the client renders only the first — byte 3,999 shows up on screen as raw `\|T` text |
-  | Mail body | ~8 KB | no | 5,929 B renders, 8,543 B is blank — matches the `max 8000` note in `MailHandler.cpp` |
+  | Mail body | 7.3-8.3 KB | no | 7,258 B renders, 8,322 B is blank — matches the `max 8000` note in `MailHandler.cpp` |
   | Quest text | 2.9-5.9 KB | no | 7×7 and 10×5 render, 10×10 is blank |
   | Gossip body | 3.4-4.4 KB | no | 7×7 opens the window, 8×8 does not |
   | Calendar event | 255 B | no | `varchar(255)` column, and `CalendarHandler.cpp:248` rejects longer |
@@ -356,8 +356,9 @@ QRCode.Chat.LineAdvance = 12
   (32,766), which the client reports as "your inbox is full" — and because every mail in the inbox
   shares that one packet, a large body can push the others out of the list.
 
-  For scale: the smallest QR that exists — version 1, 21 modules, drawn with the cheapest texture
-  paths — is 9,234 bytes, above every ceiling in the table except chat's. That is why the gossip
+  For scale: the smallest QR that exists — version 1, 21 modules, at three rows per line with the
+  quiet zone dropped entirely — is 8,322 bytes, which mail renders as blank. Nothing is left to
+  trim, so no surface but chat can hold a code. That is why the gossip
   backend is a menu handing off to chat rather than a display surface of its own, and why no mail,
   quest or ticket backend exists.
 - **The quest backend cannot show a full-size code, and can crash the client trying.** A full-size
