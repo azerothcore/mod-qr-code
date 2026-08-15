@@ -74,6 +74,31 @@ namespace
         return std::string("|T") + LIGHT_TEXTURE + ":" + std::to_string(heightPx) + ":" + std::to_string(widthPx) +
             ":0:" + std::to_string(offY) + "|t";
     }
+
+    // Four distinct paths, so picking the wrong pair style fails on the path rather than
+    // happening to match another style's string.
+    constexpr char const* PACK_DARK  = "Pack/Dark";
+    constexpr char const* PACK_LIGHT = "Pack/Light";
+    constexpr char const* PACK_DOL   = "Pack/DarkOverLight";
+    constexpr char const* PACK_LOD   = "Pack/LightOverDark";
+
+    QrRenderGeometry PackedGeometry()
+    {
+        QrRenderGeometry geometry = SquareGeometry();
+        geometry.packRows                     = true;
+        geometry.packed.dark.texture          = PACK_DARK;
+        geometry.packed.light.texture         = PACK_LIGHT;
+        geometry.packed.darkOverLight.texture = PACK_DOL;
+        geometry.packed.lightOverDark.texture = PACK_LOD;
+        return geometry;
+    }
+
+    /// A packed escape is always two modules tall, hence the doubled height throughout.
+    std::string Pair(char const* texture, std::uint32_t widthPx, std::int32_t offY)
+    {
+        return std::string("|T") + texture + ":28:" + std::to_string(widthPx) + ":0:" +
+            std::to_string(offY) + "|t";
+    }
 }
 
 /// Locks the exact escape syntax: each run picks up its own colour's texture, a crop is
@@ -296,6 +321,130 @@ TEST(QrRendererTest, RefusesPayloadsOverTheByteCap)
     EXPECT_EQ(QrRenderError::PayloadTooLarge, result.error);
     EXPECT_GT(result.byteCount, std::size_t(16));
     EXPECT_TRUE(result.text.empty());
+}
+
+/// Each of the four vertical pairs has to reach its own style. Getting this wrong inverts
+/// or blanks half the grid, which still looks like a QR code and still will not scan.
+TEST(QrRendererTest, PackedRowsPickAStylePerVerticalPair)
+{
+    // Columns, top over bottom: dark/dark, light/light, dark/light, light/dark.
+    std::vector<bool> const modules{ true, false, true, false,
+                                     true, false, false, true };
+
+    QrRenderResult const result = RenderModuleGrid(modules, 4, 2, PackedGeometry());
+
+    ASSERT_EQ(QrRenderError::None, result.error);
+    EXPECT_EQ(Pair(PACK_DARK, 10, 0) + Pair(PACK_LIGHT, 10, 0) + Pair(PACK_DOL, 10, 0) +
+        Pair(PACK_LOD, 10, 0), result.text);
+}
+
+/// The whole point: the grid occupies half the chat lines. Frame height is what this module
+/// runs out of first, so this is the number that decides whether a code fits at all.
+TEST(QrRendererTest, PackedRowsHalveTheLineCount)
+{
+    std::vector<bool> const modules(8, true);
+
+    QrRenderResult const result = RenderModuleGrid(modules, 1, 8, PackedGeometry());
+
+    ASSERT_EQ(QrRenderError::None, result.error);
+    EXPECT_EQ(std::size_t(4), SplitRows(result.text).size());
+}
+
+/// A run has to agree on both rows at once, so a row that is uniform on its own still
+/// splits where its partner changes. This is why packing saves lines and not bytes.
+TEST(QrRendererTest, PackedRunsMergeOnlyWhereBothRowsAgree)
+{
+    std::vector<bool> const modules{ true, true,
+                                     true, false };
+
+    QrRenderResult const result = RenderModuleGrid(modules, 2, 2, PackedGeometry());
+
+    ASSERT_EQ(QrRenderError::None, result.error);
+    EXPECT_EQ(Pair(PACK_DARK, 10, 0) + Pair(PACK_DOL, 10, 0), result.text);
+}
+
+/// An odd row count leaves the final line without a lower row. Reading the absent one as
+/// light lands it as another module of quiet zone; reading it as dark would print a false
+/// row of modules straight across the bottom of the symbol.
+TEST(QrRendererTest, PackedRowsPairAnOddLastRowWithLight)
+{
+    std::vector<bool> const modules(3, true);
+
+    QrRenderResult const result = RenderModuleGrid(modules, 1, 3, PackedGeometry());
+
+    ASSERT_EQ(QrRenderError::None, result.error);
+    EXPECT_EQ(Pair(PACK_DARK, 10, 0) + "\n" + Pair(PACK_DOL, 10, -14), result.text);
+}
+
+/// A packed line spans two module rows, so it needs one module less lift than a single row
+/// does - the step is -lineAdvance, not the unpacked expression with the pair height
+/// substituted in. Getting this wrong stacks every line onto the one below it.
+TEST(QrRendererTest, PackedRowOffsetDropsOneModuleOfLiftPerLine)
+{
+    std::vector<bool> const modules(4, true);
+
+    QrRenderResult const result = RenderModuleGrid(modules, 1, 4, PackedGeometry());
+
+    ASSERT_EQ(QrRenderError::None, result.error);
+    EXPECT_EQ(Pair(PACK_DARK, 10, 0) + "\n" + Pair(PACK_DARK, 10, -14), result.text);
+}
+
+/// The shipped chat geometry lifts nothing at all once packed: two 7 px modules already
+/// fill the font's own advance, which is the reason packing is free at that module size.
+TEST(QrRendererTest, PackedRowsNeedNoLiftAtTheChatDefaults)
+{
+    QrRenderGeometry geometry = PackedGeometry();
+    geometry.moduleWidth  = 7;
+    geometry.moduleHeight = 7;
+    geometry.lineAdvance  = 0;
+
+    std::vector<bool> const modules(6, true);
+
+    QrRenderResult const result = RenderModuleGrid(modules, 1, 6, geometry);
+
+    ASSERT_EQ(QrRenderError::None, result.error);
+    EXPECT_EQ(std::string::npos, result.text.find(":0:-")) << "no line should be displaced";
+    EXPECT_EQ(std::size_t(3), SplitRows(result.text).size());
+}
+
+/// Bottom anchoring still has to land the final line on zero once the lines are pairs.
+TEST(QrRendererTest, PackedRowsHonourBottomAnchoring)
+{
+    QrRenderGeometry geometry = PackedGeometry();
+    geometry.anchorBottom = true;
+
+    std::vector<bool> const modules(4, true);
+
+    QrRenderResult const result = RenderModuleGrid(modules, 1, 4, geometry);
+
+    ASSERT_EQ(QrRenderError::None, result.error);
+    EXPECT_EQ(Pair(PACK_DARK, 10, 14) + "\n" + Pair(PACK_DARK, 10, 0), result.text);
+}
+
+/// Packing has to leave the quiet zone intact, drawn as real light textures like the
+/// unpacked path - a blank line would take the chat frame's own dark background.
+TEST(QrRendererTest, PackedRowsKeepTheQuietZone)
+{
+    QrBitmap bitmap;
+    bitmap.size = 1;
+    bitmap.modules = { true };
+
+    QrRenderGeometry geometry = PackedGeometry();
+    geometry.quietZone = QR_QUIET_ZONE_MODULES;
+
+    QrRenderResult const result = RenderQr(bitmap, geometry);
+
+    ASSERT_EQ(QrRenderError::None, result.error);
+
+    // 9 padded rows pair down to 5 lines, the last of them half quiet zone and half absent.
+    std::vector<std::string> const rows = SplitRows(result.text);
+    ASSERT_EQ(std::size_t(5), rows.size());
+    EXPECT_EQ(Pair(PACK_LIGHT, 90, 0), rows[0]);
+    EXPECT_EQ(Pair(PACK_LIGHT, 90, -14), rows[1]);
+
+    // Row 4 of 9 is the upper half of the third pair, so the one dark module draws as
+    // dark-over-light rather than as a solid pair.
+    EXPECT_EQ(Pair(PACK_LIGHT, 40, -28) + Pair(PACK_DOL, 10, -28) + Pair(PACK_LIGHT, 40, -28), rows[2]);
 }
 
 /// Sanity bound on the size estimate the whole design rests on: a version 1 code is the

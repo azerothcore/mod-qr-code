@@ -73,15 +73,15 @@
 #        Description: Offers the ".account 2fa qrcode" command. When 0 the command refuses and
 #                     points the player at ".account 2fa setup".
 #
-#                     Off by default because it is only usable where the whole code fits on screen
-#                     at once: a two-factor payload needs a version 4 symbol, which is 35 chat lines
-#                     at QuietZone 1, more than a default chat frame shows. A player who can see two
-#                     thirds of a code is worse off than one who was never offered it.
+#                     A two-factor payload needs a version 4 symbol: 35 module rows at QuietZone 1,
+#                     which is 18 chat lines with PackRows on and 35 without. 18 fits a default
+#                     chat frame, which is what makes the command usable at all - a player who can
+#                     see two thirds of a code is worse off than one never offered it.
 #
-#                     Before turning it on, check ".qr grid 35" fits in the chat frame. A smaller
-#                     chat font (right-click the chat tab, Font Size) is what buys the room, and
-#                     LineAdvance has to be retuned after changing it.
-#        Default:     0
+#                     Turn this off if you also turn PackRows off, or check ".qr grid 35" fits
+#                     first. A smaller chat font (right-click the chat tab, Font Size) buys the
+#                     room, and LineAdvance has to be retuned after changing it.
+#        Default:     1
 #
 #    QRCode.TwoFA.Issuer
 #        Description: Name the authenticator app shows above the generated tokens for
@@ -115,7 +115,8 @@
 #    are settings.
 #
 #    Paths take forward or back slashes and no file extension. Preview any candidate in-game
-#    without restarting anything:
+#    without restarting anything - the client doubles a typed | to ||, so the pipe has to be
+#    built with string.char(124) or the escape prints as literal text:
 #
 #        /run P=string.char(124) DEFAULT_CHAT_FRAME:AddMessage(P.."TInterface/Buttons/WHITE8X8:24:24"..P.."t")
 #
@@ -141,6 +142,64 @@
 #        Description: Sub-rect of the light texture, same format as QRCode.DarkTexCoords.
 #                     Empty by default - WHITE8X8 is a flat colour, so there is nothing to crop.
 #        Default:     ""
+#
+###################################################################################################
+#
+#    ROW PACKING (experimental)
+#
+#    A code is one chat line per module row, and running out of frame height is the failure this
+#    module actually hits. Packing draws two module rows inside one escape of double height, which
+#    halves the lines a code needs - a version 3 code drops from 35 lines to 18.
+#
+#    It costs nothing in bytes and saves none either: a run has to agree on both rows at once, so
+#    merging gets weaker and the escape count barely moves. Lines are the whole point.
+#
+#    The catch is the chat font's fixed line advance. Two 7 px modules come to 14 px and still fit
+#    inside it, which is why this works at the default module size. Raise ModuleHeight past 8 and
+#    the line grows to fit the taller escape, handing the halving straight back - so re-check
+#    against a real frame after changing it.
+#
+#    LineAdvance still applies, but a packed line spans two module rows and so needs one module
+#    less lift than a single row does. At the chat default of 0 that cancels outright and no line
+#    is displaced at all - the pairs simply land on the font's own spacing.
+#
+#    A packed escape needs a texture that already contains both modules, since one escape can name
+#    only one texture. The client has very few of those: the defaults crop the USK age-rating badge,
+#    which carries pure black directly above pure white with no alpha nearby. Its lower edge gives
+#    only 3 px of black, so the light-over-dark pair is the soft one - if a code will not scan, that
+#    is the crop to replace first.
+#
+#    Coordinates below are stated against the badge's real 128x128 instead of as percentages: exact,
+#    and a third of the bytes, which matters when every crop is repeated on every escape.
+#
+#    QRCode.PackRows
+#        Description: 1 draws two module rows per chat line using the QRCode.Pack.* styles below.
+#                     0 draws one row per line using QRCode.DarkTexture / QRCode.LightTexture.
+#                     The two style sets are independent so the modes can be compared by flipping
+#                     this alone.
+#        Default:     1
+#
+#    QRCode.Pack.DarkTexture / QRCode.Pack.DarkTexCoords
+#        Description: Pair with both modules dark.
+#        Default:     "Interface/Glues/Login/Glues-GermanRating" / "128:128:1:51:89:100"
+#
+#    QRCode.Pack.LightTexture / QRCode.Pack.LightTexCoords
+#        Description: Pair with both modules light, including the quiet zone. Uncropped, so this
+#                     one stays the cheapest escape of the four - and it is also the commonest.
+#        Default:     "Interface/Buttons/WHITE8X8" / ""
+#
+#    QRCode.Pack.DarkOverLightTexture / QRCode.Pack.DarkOverLightTexCoords
+#        Description: Pair with the upper module dark and the lower one light. 13 px of each in the
+#                     default crop, so the boundary lands exactly halfway.
+#        Default:     "Interface/Glues/Login/Glues-GermanRating" / "128:128:2:52:88:114"
+#
+#    QRCode.Pack.LightOverDarkTexture / QRCode.Pack.LightOverDarkTexCoords
+#        Description: Pair with the upper module light and the lower one dark. Only 3 px of each,
+#                     stretched to fill, so this is the crop most likely to need replacing.
+#        Default:     "Interface/Glues/Login/Glues-GermanRating" / "128:128:2:126:122:128"
+#
+#    All four styles have to agree on their black and their white. Mixing a source whose "black" is
+#    a dark grey with one that is a true black makes the seam between pairs read as a module edge.
 #
 ###################################################################################################
 #
@@ -221,7 +280,7 @@ QRCode.MaxInputLength = 96
 QRCode.MaxPayloadBytes = 48000
 QRCode.CooldownSeconds = 5
 QRCode.QuietZone = 1
-QRCode.TwoFA.Enable = 0
+QRCode.TwoFA.Enable = 1
 QRCode.TwoFA.Issuer = ""
 QRCode.AnchorBottom = 1
 
@@ -229,6 +288,16 @@ QRCode.DarkTexture = "Interface/DialogFrame/UI-DialogBox-Background"
 QRCode.DarkTexCoords = "100:100:45:55:45:55"
 QRCode.LightTexture = "Interface/Buttons/WHITE8X8"
 QRCode.LightTexCoords = ""
+
+QRCode.PackRows = 1
+QRCode.Pack.DarkTexture = "Interface/Glues/Login/Glues-GermanRating"
+QRCode.Pack.DarkTexCoords = "128:128:1:51:89:100"
+QRCode.Pack.LightTexture = "Interface/Buttons/WHITE8X8"
+QRCode.Pack.LightTexCoords = ""
+QRCode.Pack.DarkOverLightTexture = "Interface/Glues/Login/Glues-GermanRating"
+QRCode.Pack.DarkOverLightTexCoords = "128:128:2:52:88:114"
+QRCode.Pack.LightOverDarkTexture = "Interface/Glues/Login/Glues-GermanRating"
+QRCode.Pack.LightOverDarkTexCoords = "128:128:2:126:122:128"
 
 QRCode.Chat.ModuleWidth = 7
 QRCode.Chat.ModuleHeight = 7

@@ -59,6 +59,21 @@ struct QrModuleStyle
     std::string texCoords;
 };
 
+/// The four vertical module pairs a packed escape has to be able to draw.
+///
+/// Packing puts two module rows inside one escape, so a mixed pair needs a texture whose
+/// crop already contains a dark band sitting directly on a light one - it cannot be built
+/// out of the solid styles, because an escape names exactly one texture. The set also has
+/// to be internally consistent: if the solid dark and the dark half of a mixed pair are
+/// not the same colour, the seam between pairs reads as a module edge.
+struct QrPackedStyles
+{
+    QrModuleStyle dark;          ///< Both modules dark.
+    QrModuleStyle light;         ///< Both modules light, including the quiet zone.
+    QrModuleStyle darkOverLight; ///< Upper module dark, lower module light.
+    QrModuleStyle lightOverDark; ///< Upper module light, lower module dark.
+};
+
 /// Pixel geometry the escape sequences are emitted with. Every field is a client-side
 /// value that can only be settled by looking at the result in-game, so all of them come
 /// from config and none are baked into the renderer.
@@ -96,6 +111,24 @@ struct QrRenderGeometry
     /// where it reads as ordinary empty chat; anchoring at the top leaves the grid
     /// floating with a visible gap beneath it, which grows as modules get smaller.
     bool anchorBottom = true;
+
+    /// Draw two module rows per text line, taking styles from @ref packed rather than from
+    /// @ref dark and @ref light.
+    ///
+    /// Halves the number of chat lines a code occupies, which is the resource this module
+    /// actually runs out of. It buys nothing in bytes - both rows' run boundaries still
+    /// have to be honoured, so the escape count barely moves - and the longer texture paths
+    /// a packed style needs can leave the payload slightly larger than the unpacked one.
+    ///
+    /// Only sound while two modules still fit inside the chat font's fixed line advance.
+    /// Past that the line grows to fit the taller escape and hands the halving straight
+    /// back, so it wants rechecking against the real frame whenever moduleHeight changes.
+    /// The shipped config turns it on; this default stays off so a bare geometry never
+    /// packs without the four styles below having been filled in.
+    bool packRows = false;
+
+    /// Styles used when @ref packRows is set. Ignored otherwise.
+    QrPackedStyles packed;
 
     /// Widest row the target frame can show without wrapping, in pixels. 0 = no limit.
     std::uint32_t maxRowWidthPx = 0;

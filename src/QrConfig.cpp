@@ -44,6 +44,37 @@ QrRenderGeometry QrConfig::LoadGeometry(std::string const& prefix, QrRenderGeome
 
     geometry.anchorBottom = sConfigMgr->GetOption<bool>("QRCode.AnchorBottom", true);
 
+    // The defaults crop the USK age-rating badge, which is the one stock texture carrying a
+    // hard black-on-white edge in both directions with no alpha anywhere near it: pure 0
+    // above pure 248, and both bands flat enough to stretch across a run. Coordinates are
+    // stated against the texture's real 128x128 rather than as percentages, which keeps them
+    // exact and costs a third of the bytes - and every crop is charged on every escape.
+    geometry.packRows = sConfigMgr->GetOption<bool>("QRCode.PackRows", true);
+
+    geometry.packed.dark.texture = sConfigMgr->GetOption<std::string>("QRCode.Pack.DarkTexture",
+        "Interface/Glues/Login/Glues-GermanRating");
+    geometry.packed.dark.texCoords = sConfigMgr->GetOption<std::string>("QRCode.Pack.DarkTexCoords",
+        "128:128:1:51:89:100");
+    geometry.packed.light.texture = sConfigMgr->GetOption<std::string>("QRCode.Pack.LightTexture",
+        "Interface/Buttons/WHITE8X8");
+    geometry.packed.light.texCoords = sConfigMgr->GetOption<std::string>("QRCode.Pack.LightTexCoords", "");
+    geometry.packed.darkOverLight.texture = sConfigMgr->GetOption<std::string>("QRCode.Pack.DarkOverLightTexture",
+        "Interface/Glues/Login/Glues-GermanRating");
+    geometry.packed.darkOverLight.texCoords = sConfigMgr->GetOption<std::string>("QRCode.Pack.DarkOverLightTexCoords",
+        "128:128:2:52:88:114");
+    geometry.packed.lightOverDark.texture = sConfigMgr->GetOption<std::string>("QRCode.Pack.LightOverDarkTexture",
+        "Interface/Glues/Login/Glues-GermanRating");
+    geometry.packed.lightOverDark.texCoords = sConfigMgr->GetOption<std::string>("QRCode.Pack.LightOverDarkTexCoords",
+        "128:128:2:126:122:128");
+
+    if (geometry.packRows && (geometry.packed.dark.texture.empty() || geometry.packed.light.texture.empty() ||
+        geometry.packed.darkOverLight.texture.empty() || geometry.packed.lightOverDark.texture.empty()))
+    {
+        LOG_ERROR("module.qrcode", "QRCode.PackRows needs all four QRCode.Pack.*Texture paths set, "
+            "drawing one row per line instead");
+        geometry.packRows = false;
+    }
+
     if (!geometry.moduleWidth || !geometry.moduleHeight)
     {
         LOG_ERROR("module.qrcode", "{}.ModuleWidth/ModuleHeight must be non-zero, falling back to {}x{}",
@@ -87,7 +118,7 @@ void QrConfig::Load()
 
     MaxInputLength  = sConfigMgr->GetOption<uint32>("QRCode.MaxInputLength", 96);
     CooldownSeconds = sConfigMgr->GetOption<uint32>("QRCode.CooldownSeconds", 5);
-    TwoFAEnabled    = sConfigMgr->GetOption<bool>("QRCode.TwoFA.Enable", false);
+    TwoFAEnabled    = sConfigMgr->GetOption<bool>("QRCode.TwoFA.Enable", true);
     TwoFAIssuer     = sConfigMgr->GetOption<std::string>("QRCode.TwoFA.Issuer", "");
 
     // Chat defaults are measured in-game: 7 px square modules, and a row offset of

@@ -49,6 +49,38 @@ empty chat. Turn it off and the code floats high in the frame with a conspicuous
 That makes modules non-square on the quest backend. Decoding is unaffected: a uniform aspect scale is
 an affine transform, which decoders resolve from the three finder patterns.
 
+### Packing two rows per line
+
+`QRCode.PackRows` draws two module rows inside a single escape of double height, halving the chat
+lines a code needs. Lines, not bytes, are what the chat frame runs out of, so this is the setting
+that decides whether a code fits on screen at all.
+
+It works because two 7 px modules come to 14 px, still inside the chat font's fixed line advance of
+roughly 16 px, so the line does not grow to accommodate the taller texture. Push `ModuleHeight` past
+8 and it does, handing the saving straight back — so it wants rechecking against a real frame after
+any change to the module size.
+
+A packed escape needs a texture that already contains both modules, because an escape names exactly
+one texture; a dark module and a light one cannot be composited. Scanning the 3.3.5a interface
+textures for an opaque rectangle with a hard horizontal black/white edge turns up 80 candidates, and
+only two with flat bands in both directions. The default is the USK age-rating badge,
+`Interface/Glues/Login/Glues-GermanRating`, which carries luminance 0 directly above luminance 248
+with 13 px of each — the boundary lands exactly halfway, which is what the crop needs. Its bottom
+edge gives only 3 px of black, so the light-over-dark pair is the soft one; if a code will not scan,
+that is the crop to replace first.
+
+The crops are stated against the texture's real `128:128` rather than as percentages. That keeps them
+exact and costs a third of the bytes, which matters when a crop is repeated on every escape. Measured
+on `https://www.azerothcore.org`:
+
+|                | lines | escapes | bytes  |
+|----------------|------:|--------:|-------:|
+| one row a line |    27 |     349 | 20,559 |
+| packed         |    14 |     246 | 15,656 |
+
+Run merging gets weaker under packing — a run has to agree on both rows at once — so the escape count
+falls by less than half. The line count is the point.
+
 ## Requirements
 
 None beyond AzerothCore itself. The QR generator is vendored, so there is no new dependency, and the
@@ -80,12 +112,12 @@ a single argument means a square of that size.
 
 ### Two-factor setup by QR
 
-**This command ships disabled (`QRCode.TwoFA.Enable = 0`) and most realms should leave it that way.**
-A two-factor payload needs a version 4 symbol, which is 35 chat lines, and a default chat frame shows
-fewer than that — the player gets the bottom two thirds of a code and no way to scan it, which is
-worse than never being offered the command. Turn it on only after `.qr grid 35` fits in your frame;
-see the chat-lines section below for what buys the room. Until then `.account 2fa setup` is the
-working flow, and the command refuses with a message saying so.
+A two-factor payload needs a version 4 symbol — 35 module rows. With `QRCode.PackRows` on, that is
+18 chat lines and fits a default frame; with it off it is 35, which does not, and the player gets the
+bottom two thirds of a code and no way to scan it. The command therefore ships enabled alongside
+packing. **Turn it off if you turn packing off**, or confirm `.qr grid 35` fits your frame first —
+see the chat-lines section below for what buys the room. When disabled the command refuses and points
+the player at `.account 2fa setup`, which is the working fallback.
 
 The core's `.account 2fa setup` prints a 32-character Base32 key and asks the player to type it into
 an authenticator app before confirming with a token. `.account 2fa qrcode` is the same two steps with
@@ -189,7 +221,8 @@ before first use:
 | `QRCode.MaxPayloadBytes` | 48000 | Hard cap on the generated string |
 | `QRCode.CooldownSeconds` | 5 | Per-player rate limit. Set to 0 while calibrating |
 | `QRCode.QuietZone` | 1 | Light border in modules, 1-4. Each one costs two chat lines; the spec asks for 4 |
-| `QRCode.TwoFA.Enable` | 0 | Offers `.account 2fa qrcode`. Off until a 35-line code fits your chat frame |
+| `QRCode.PackRows` | 1 | Two module rows per chat line, halving the height a code needs |
+| `QRCode.TwoFA.Enable` | 1 | Offers `.account 2fa qrcode`. Turn off if you turn `PackRows` off |
 | `QRCode.TwoFA.Issuer` | "" | Label shown by the authenticator app; empty means the realm name |
 | `QRCode.DarkTexture` / `QRCode.LightTexture` | see conf | Texture per module colour — tinting is impossible |
 | `QRCode.DarkTexCoords` / `QRCode.LightTexCoords` | see conf | Sub-rect crop, `texW:texH:left:right:top:bottom` |
@@ -328,6 +361,9 @@ QRCode.Chat.LineAdvance = 12
   Texture paths are charged on every run, so they are worth real bytes: dropping
   `QRCode.DarkTexCoords` and using the shorter `Interface/Tooltips/UI-Tooltip-Background` takes the
   same version 4 code from 38,829 to 31,104 bytes, at the cost of a greyer dark module.
+  `QRCode.PackRows` halves the line count, but it is not a way under a byte ceiling: measured
+  against these cheapest paths it saves 16% on a version 1 code and only 5% on a version 4 one,
+  because a packed style has to carry a longer path and a crop on three of its four states.
 - **Capacity is small.** Geometry, not the encoder, is the binding constraint: version 5 at ECC L
   holds 106 bytes, version 3 only 53. Long URLs need shortening before they will fit.
 

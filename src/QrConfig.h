@@ -52,12 +52,12 @@ public:
 
     /// Whether `.account 2fa qrcode` is offered at all.
     ///
-    /// Off by default because the command is only usable where the whole code fits on
-    /// screen at once, and a 2FA payload needs a version 4 symbol - 35 chat lines, more
-    /// than a default chat frame shows. A code the player can only see two thirds of is
-    /// worse than no command, so switching this on is a decision per realm, taken after
-    /// checking `.qr grid 35` fits.
-    bool TwoFAEnabled = false;
+    /// The command is only usable where the whole code fits on screen at once, and a 2FA
+    /// payload needs a version 4 symbol - 35 module rows. Row packing draws those in 18
+    /// chat lines, which a default frame shows; without it they need 35, which it does
+    /// not. So this follows QRCode.PackRows: on with it, and worth turning off without it,
+    /// since a code the player can only see two thirds of is worse than no command.
+    bool TwoFAEnabled = true;
 
     /// Issuer shown by the authenticator app for `.account 2fa qrcode`. Empty means the
     /// realm name, which is the sensible label but not always a short one - and the label
