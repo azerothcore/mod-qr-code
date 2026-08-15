@@ -22,6 +22,10 @@
 #include "QrEncoder.h"
 #include "QrRenderer.h"
 
+#include <map>
+#include <string>
+#include <vector>
+
 enum class QrBackend : uint8
 {
     Chat  = 1,
@@ -42,6 +46,13 @@ public:
 
     /// Geometry for the backend currently selected by QRCode.Backend.
     QrRenderGeometry const& ActiveGeometry() const;
+
+    /// Palette named @p name, matched case-insensitively, or nullptr if the realm has no
+    /// such colour configured.
+    QrPalette const* FindPalette(std::string const& name) const;
+
+    /// Configured palette names, in the order `.qr color` lists them.
+    std::vector<std::string> PaletteNames() const;
 
     bool      Enabled         = true;
     QrBackend Backend         = QrBackend::Chat;
@@ -64,11 +75,19 @@ public:
     /// is part of a payload that has very little room left.
     std::string TwoFAIssuer;
 
+    /// Module rows drawn per line, validated once so the geometries and the palettes agree
+    /// on how many packed styles a complete set needs.
+    uint32 RowsPerLine = 3;
+
     QrRenderGeometry ChatGeometry;
     QrRenderGeometry QuestGeometry;
 
+    /// Colours offered by `.qr color`, keyed by lowercased name.
+    std::map<std::string, QrPalette> Palettes;
+
 private:
     QrRenderGeometry LoadGeometry(std::string const& prefix, QrRenderGeometry const& defaults) const;
+    void LoadPalettes();
 };
 
 #define sQrConfig QrConfig::instance()

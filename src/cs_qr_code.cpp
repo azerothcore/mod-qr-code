@@ -36,14 +36,18 @@
 #include "Realm.h"
 #include "ScriptMgr.h"
 #include "SecretMgr.h"
+#include "StringFormat.h"
 #include "TOTP.h"
 #include "World.h" // for the `realm` global
 #include "WorldSession.h"
 
+#include <algorithm>
+#include <cctype>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 using namespace Acore::ChatCommands;
 
@@ -62,6 +66,90 @@ namespace
 
     /// Longest payload echo shown as the quest frame's title, in bytes.
     constexpr std::size_t QR_TITLE_MAX_LENGTH = 120;
+
+    /// Width of each `.qr swatch` band, in modules. Wide enough to judge whether a crop is
+    /// flat across a run, which is what a merged run of modules will stretch it over.
+    constexpr uint32 QR_SWATCH_WIDTH_MODULES = 32;
+
+    /// Height of each `.qr swatch` band, in module rows.
+    constexpr uint32 QR_SWATCH_BAND_ROWS = 3;
+
+    /// Cells per side `.qr sweep` divides a texture into when given no count.
+    constexpr uint32 QR_SWEEP_DEFAULT_CELLS = 4;
+
+    /// Most cells per side `.qr sweep` will accept. The sweep prints one chat line per cell, so
+    /// the cap is really a cap on how much chat one command may fill.
+    constexpr uint32 QR_SWEEP_MAX_CELLS = 8;
+
+    /// Width of one `.qr sweep` bar, in modules. Wide enough to see a colour, short enough to
+    /// leave the coordinates beside it readable on the same line.
+    constexpr uint32 QR_SWEEP_BAR_MODULES = 12;
+
+    /// Basis `.qr sweep` states its crop against.
+    ///
+    /// Deliberately far larger than any client texture. The client divides the crop edges by the
+    /// stated dimensions, so quoting a basis of 1000 against a 64 px icon addresses it in
+    /// sixteenths of a texel - and sub-texel precision is the whole point, because a window
+    /// narrower than one texel cannot contain a gradient no matter what the artwork does. Stating
+    /// the real size instead limits a window to whole texels, and four texels of a faceted gem
+    /// icon is enough to straddle a highlight edge and hand every module a visible ramp.
+    constexpr uint32 QR_SWEEP_SAMPLE_BASIS = 1000;
+
+    /// Half-width of the window sampled at each cell centre, against QR_SWEEP_SAMPLE_BASIS.
+    ///
+    /// Six units of a thousand is about four tenths of a texel on a 64 px icon: comfortably inside
+    /// one, while still wide enough that the client has a region to filter rather than a degenerate
+    /// zero-width rect.
+    constexpr uint32 QR_SWEEP_SAMPLE_HALF = 3;
+
+    // The leftmost and topmost sample sits half a cell in, so the window has to be narrower than
+    // that or the subtraction below wraps.
+    static_assert((QR_SWEEP_SAMPLE_BASIS / 2) / QR_SWEEP_MAX_CELLS > QR_SWEEP_SAMPLE_HALF,
+        "sample window must fit inside the first cell of the finest sweep");
+
+    /// Whether @p path is safe to drop into a `|T` escape.
+    ///
+    /// The argument is player-typed and lands between the escape's own delimiters, so a '|' or
+    /// ':' in it would close the escape early and hand the rest of the string to the client as
+    /// markup. Restricting to the characters a texture path can actually contain closes that
+    /// without needing to know what the client will accept.
+    bool IsSafeTexturePath(std::string const& path)
+    {
+        if (path.empty())
+            return false;
+
+        return std::all_of(path.begin(), path.end(), [](unsigned char c)
+        {
+            return std::isalnum(c) || c == '/' || c == '\\' || c == '-' || c == '_' || c == '.' || c == ' ';
+        });
+    }
+
+    /// Whether @p coords is a well-formed trailing crop, i.e. digits and ':' only.
+    ///
+    /// The client is left to judge the field count; this only keeps the escape from being
+    /// broken out of, same as @ref IsSafeTexturePath.
+    bool IsSafeTexCoords(std::string const& coords)
+    {
+        return std::all_of(coords.begin(), coords.end(), [](unsigned char c)
+        {
+            return std::isdigit(c) || c == ':';
+        });
+    }
+
+    std::string JoinNames(std::vector<std::string> const& names)
+    {
+        std::string joined;
+
+        for (std::string const& name : names)
+        {
+            if (!joined.empty())
+                joined += ", ";
+
+            joined += name;
+        }
+
+        return joined;
+    }
 
     /// Truncates to at most @p maxBytes without splitting a UTF-8 sequence, which would
     /// put an invalid string in the quest packet.
@@ -230,6 +318,10 @@ public:
             { "probe",  HandleQrProbeCommand,  SEC_GAMEMASTER, Console::No },
             { "grid",   HandleQrGridCommand,   SEC_GAMEMASTER, Console::No },
             { "gossip", HandleQrGossipCommand, SEC_GAMEMASTER, Console::No },
+            { "say",    HandleQrSayCommand,    SEC_GAMEMASTER, Console::No },
+            { "color",  HandleQrColorCommand,  SEC_GAMEMASTER, Console::No },
+            { "swatch", HandleQrSwatchCommand, SEC_GAMEMASTER, Console::No },
+            { "sweep",  HandleQrSweepCommand,  SEC_GAMEMASTER, Console::No },
             { "",       HandleQrCommand,       SEC_GAMEMASTER, Console::No },
         };
 
@@ -418,6 +510,296 @@ public:
             return false;
 
         QrDelivery::SendGossipQrMenu(player, *grid);
+        return true;
+    }
+
+    /// Same pipeline as the bare `.qr`, but said aloud instead of shown to the caller alone:
+    /// the code goes out as the GM's own say chat, so every client in say range draws it and
+    /// anyone standing there can scan it off their own screen.
+    ///
+    /// The grid renders at the chat geometry whatever the configured backend is, since the
+    /// chat frame is where it lands, exactly as `.qr gossip` does.
+    static bool HandleQrSayCommand(ChatHandler* handler, Tail payload)
+    {
+        Player* player = AcquirePlayer(handler);
+        if (!player)
+            return false;
+
+        std::string const text(payload);
+        if (text.empty())
+        {
+            handler->SendErrorMessage("Usage: .qr say <text>");
+            return false;
+        }
+
+        std::optional<std::string> const grid = BuildQrGrid(handler, text, sQrConfig->ChatGeometry);
+        if (!grid)
+            return false;
+
+        QrDelivery::SendSay(player, *grid);
+        return true;
+    }
+
+    /// Draws a code in one of the realm's configured colours, or lists them when given no name.
+    ///
+    /// Only the dark modules change colour: light stays white, because light is what a decoder
+    /// thresholds against and colouring it spends the contrast the code is carrying.
+    static bool HandleQrColorCommand(ChatHandler* handler, Optional<std::string> name, Tail payload)
+    {
+        // Gated before anything is reported, but without charging the cooldown: listing the
+        // colours draws nothing, and asking what is available should not be refused because of
+        // the draw that prompted the question.
+        if (!AcquirePlayer(handler, false))
+            return false;
+
+        std::vector<std::string> const names = sQrConfig->PaletteNames();
+
+        if (names.empty())
+        {
+            handler->SendErrorMessage("No colours are configured. Add a QRCode.Palette.<name>.DarkTexture "
+                "to qrcode.conf, then \".reload config\". Use \".qr swatch\" to check a texture first.");
+            return false;
+        }
+
+        // Listing is what an admin wants first and costs nothing to draw, so it runs before the
+        // cooldown is charged.
+        if (!name)
+        {
+            handler->PSendSysMessage("Usage: .qr color <name> <text>. Configured: {}", JoinNames(names));
+            return true;
+        }
+
+        // Escaped because it is echoed straight back: the name is whatever the player typed, and
+        // an unmatched one is exactly the case where that is not a colour at all.
+        std::string const safeName = QrDelivery::EscapeUiSequences(*name);
+
+        QrPalette const* palette = sQrConfig->FindPalette(*name);
+        if (!palette)
+        {
+            handler->SendErrorMessage("No colour named '{}'. Configured: {}", safeName, JoinNames(names));
+            return false;
+        }
+
+        std::string const text(payload);
+        if (text.empty())
+        {
+            handler->SendErrorMessage("Usage: .qr color {} <text>", safeName);
+            return false;
+        }
+
+        Player* player = AcquirePlayer(handler);
+        if (!player)
+            return false;
+
+        QrRenderGeometry const base = sQrConfig->ActiveGeometry();
+        QrRenderGeometry const geometry = ApplyPalette(base, *palette);
+
+        std::optional<std::string> const grid = BuildQrGrid(handler, text, geometry);
+        if (!grid)
+            return false;
+
+        Deliver(handler, player, *grid,
+            QrDelivery::EscapeUiSequences(TruncateUtf8(text, QR_TITLE_MAX_LENGTH)));
+
+        // Losing the packed styles multiplies the line count, and a code that suddenly needs
+        // three times the frame height is worth explaining rather than leaving to be discovered.
+        if (geometry.rowsPerLine < base.rowsPerLine)
+            handler->PSendSysMessage("'{}' has no pack textures, so this drew one module row per line - "
+                "{}x the lines the same code takes in black and white.", safeName, base.rowsPerLine);
+
+        return true;
+    }
+
+    /// Draws a candidate texture three ways so its fitness as a module colour can be judged by
+    /// eye, which is the only way available: the server cannot read the client's art.
+    ///
+    /// The three bands answer the three questions in order. Solid shows whether the crop is
+    /// flat, since a gradient stretched across a merged run reads as a smear rather than a
+    /// module. Against white is what the decoder actually sees, so an unreadable second band
+    /// means the colour is too light whatever it looks like on its own. Against the configured
+    /// dark says whether the colour is distinguishable from plain black - if that band looks
+    /// solid, the palette buys nothing over the default.
+    static bool HandleQrSwatchCommand(ChatHandler* handler, Optional<std::string> texture, Tail texCoords)
+    {
+        Player* player = AcquirePlayer(handler);
+        if (!player)
+            return false;
+
+        if (!texture)
+        {
+            handler->SendErrorMessage("Usage: .qr swatch <texture> [texCoords]. Example: "
+                ".qr swatch Interface/Buttons/WHITE8X8");
+            return false;
+        }
+
+        // Both rejections quote what was typed, and what was typed is by definition something the
+        // escape-safety check just refused - so it is escaped on the way back out rather than
+        // handed to the client as markup.
+        if (!IsSafeTexturePath(*texture))
+        {
+            handler->SendErrorMessage("'{}' is not a usable texture path: letters, digits, slashes, "
+                "dots, dashes and underscores only.", QrDelivery::EscapeUiSequences(*texture));
+            return false;
+        }
+
+        std::string const coords(texCoords);
+        if (!IsSafeTexCoords(coords))
+        {
+            handler->SendErrorMessage("'{}' is not usable as texCoords: digits and colons only, as "
+                "\"texWidth:texHeight:left:right:top:bottom\".", QrDelivery::EscapeUiSequences(coords));
+            return false;
+        }
+
+        QrPalette candidate;
+        candidate.dark.texture = *texture;
+        candidate.dark.texCoords = coords;
+
+        QrRenderGeometry const base = sQrConfig->ActiveGeometry();
+
+        // Routed through the same call `.qr color` uses, so the bands are drawn at the module size
+        // a coloured code would really use rather than at the packed size. The difference decides
+        // the answer: the fallback scales the module up by the packing it gives up, and a crop
+        // stretched over a module three times taller shows a gradient that was invisible at the
+        // smaller size. Judging at the wrong size passes crops that then smear in the code.
+        QrRenderGeometry const band = ApplyPalette(base, candidate);
+
+        std::vector<bool> solid(std::size_t(QR_SWATCH_WIDTH_MODULES) * QR_SWATCH_BAND_ROWS, true);
+        std::vector<bool> checker(std::size_t(QR_SWATCH_WIDTH_MODULES) * QR_SWATCH_BAND_ROWS);
+        for (uint32 y = 0; y < QR_SWATCH_BAND_ROWS; ++y)
+            for (uint32 x = 0; x < QR_SWATCH_WIDTH_MODULES; ++x)
+                checker[std::size_t(y) * QR_SWATCH_WIDTH_MODULES + x] = (x + y) % 2 == 0;
+
+        std::string text;
+        std::size_t byteCount = 0;
+
+        auto const appendBand = [&](std::vector<bool> const& modules, QrModuleStyle const& light) -> bool
+        {
+            QrRenderGeometry geometry = band;
+            geometry.light = light;
+
+            QrRenderResult const result =
+                RenderModuleGrid(modules, QR_SWATCH_WIDTH_MODULES, QR_SWATCH_BAND_ROWS, geometry);
+            if (result.error != QrRenderError::None)
+            {
+                ReportRenderError(handler, result, geometry);
+                return false;
+            }
+
+            if (!text.empty())
+                text += '\n';
+
+            text += result.text;
+            byteCount += result.byteCount;
+            return true;
+        };
+
+        if (!appendBand(solid, base.light) || !appendBand(checker, base.light) ||
+            !appendBand(checker, base.dark))
+            return false;
+
+        Deliver(handler, player, text, "QR swatch");
+
+        handler->PSendSysMessage("Swatch: solid, then against white, then against the configured dark. "
+            "{} modules at {}x{} px, the size a coloured code draws at, {} bytes.",
+            QR_SWATCH_WIDTH_MODULES, band.moduleWidth, band.moduleHeight, byteCount);
+        handler->PSendSysMessage("If band 2 reads as a clean checker and band 3 does not look solid, "
+            "put it in qrcode.conf as:");
+        handler->PSendSysMessage("QRCode.Palette.<name>.DarkTexture = \"{}\"", *texture);
+        handler->PSendSysMessage("QRCode.Palette.<name>.DarkTexCoords = \"{}\"", coords);
+        return true;
+    }
+
+    /// Samples a texture on a grid of points and draws one flat bar per point, each followed by
+    /// the texCoords that produced it.
+    ///
+    /// This is the answer to the question `.qr swatch` leaves open. Swatch judges a crop you
+    /// already have; finding one means knowing where in a texture the colour you want sits, and
+    /// the server cannot read the artwork to say. Drawing every sample at once turns that into
+    /// something the eye settles in one command, with the coordinates printed beside each bar
+    /// ready to paste.
+    ///
+    /// The samples are deliberately tiny. Stretching a wider crop across a run of modules is what
+    /// smears a faceted icon - the module ends up carrying the gradient between a highlight and a
+    /// shadow instead of one colour - so the sweep only ever offers windows small enough to land
+    /// inside a single facet, which is also what makes every bar directly usable.
+    ///
+    /// A texture that draws nothing at all is the other thing this catches, and the reason to
+    /// reach for it first - every bar blank means the path is wrong, not the crop.
+    static bool HandleQrSweepCommand(ChatHandler* handler, Optional<std::string> texture,
+        Optional<uint32> cellsArg)
+    {
+        Player* player = AcquirePlayer(handler);
+        if (!player)
+            return false;
+
+        if (!texture)
+        {
+            handler->SendErrorMessage("Usage: .qr sweep <texture> [cells per side, 2-{}]. Example: "
+                ".qr sweep Interface/Icons/INV_Misc_Gem_Ruby_02", QR_SWEEP_MAX_CELLS);
+            return false;
+        }
+
+        if (!IsSafeTexturePath(*texture))
+        {
+            handler->SendErrorMessage("'{}' is not a usable texture path: letters, digits, slashes, "
+                "dots, dashes and underscores only.", QrDelivery::EscapeUiSequences(*texture));
+            return false;
+        }
+
+        uint32 const cells = cellsArg.value_or(QR_SWEEP_DEFAULT_CELLS);
+        if (cells < 2 || cells > QR_SWEEP_MAX_CELLS)
+        {
+            handler->SendErrorMessage("Cells per side must be 2 to {}.", QR_SWEEP_MAX_CELLS);
+            return false;
+        }
+
+        // Every cell is one solid run, so the bar is a single-row all-dark grid recoloured per
+        // cell, drawn through ApplyPalette at the size a coloured code really uses.
+        QrRenderGeometry const base = sQrConfig->ActiveGeometry();
+
+        std::vector<bool> const bar(QR_SWEEP_BAR_MODULES, true);
+
+        handler->PSendSysMessage("Sweep of {} at {}x{} sample points. Every bar is a flat colour, "
+            "so pick the darkest, most saturated one; every bar blank means the texture path is "
+            "wrong.", *texture, cells, cells);
+
+        for (uint32 row = 0; row < cells; ++row)
+        {
+            for (uint32 col = 0; col < cells; ++col)
+            {
+                // A small window at the cell's centre rather than the cell itself, so the bar is a
+                // flat colour and the coordinates are directly usable. Stated against a 100x100
+                // basis so the edges are percentages and the sweep needs no knowledge of the
+                // texture's real pixel size, which the server has no way to learn.
+                uint32 const centreX = (2 * col + 1) * (QR_SWEEP_SAMPLE_BASIS / 2) / cells;
+                uint32 const centreY = (2 * row + 1) * (QR_SWEEP_SAMPLE_BASIS / 2) / cells;
+
+                std::string const coords = Acore::StringFormat("{}:{}:{}:{}:{}:{}",
+                    QR_SWEEP_SAMPLE_BASIS, QR_SWEEP_SAMPLE_BASIS,
+                    centreX - QR_SWEEP_SAMPLE_HALF, centreX + QR_SWEEP_SAMPLE_HALF,
+                    centreY - QR_SWEEP_SAMPLE_HALF, centreY + QR_SWEEP_SAMPLE_HALF);
+
+                QrPalette sample;
+                sample.dark.texture = *texture;
+                sample.dark.texCoords = coords;
+
+                QrRenderGeometry geometry = ApplyPalette(base, sample);
+                geometry.maxRowWidthPx = 0;
+
+                QrRenderResult const result = RenderModuleGrid(bar, QR_SWEEP_BAR_MODULES, 1, geometry);
+                if (result.error != QrRenderError::None)
+                {
+                    ReportRenderError(handler, result, geometry);
+                    return false;
+                }
+
+                // Bar and coordinates on one line: the swatch is only useful next to the string
+                // that produced it, and a separate legend would have to be counted against it.
+                handler->PSendSysMessage("{} {}", result.text, coords);
+            }
+        }
+
+        handler->PSendSysMessage("Confirm one with \".qr swatch {} <coords>\".", *texture);
         return true;
     }
 

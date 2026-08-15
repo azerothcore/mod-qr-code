@@ -137,6 +137,56 @@ struct QrRenderGeometry
     std::uint32_t maxPayloadBytes = 0;
 };
 
+/// Quiet zone a coloured code is given, in modules, unless the config already asks for more.
+///
+/// Above QR_QUIET_ZONE_DEFAULT_MODULES because a coloured code has no confidence to spare. Its
+/// crop comes from artwork rather than from the measured black-and-white set, so its modules are
+/// less uniform, and the chat frame it is drawn in has a dark background - which leaves the quiet
+/// zone as the only thing separating the symbol from a dark surround. One module of it is thin
+/// enough for a binariser to eat; two is not, and costs two lines.
+constexpr std::uint32_t QR_QUIET_ZONE_COLOUR_MODULES = 2;
+
+/// A recolouring, picked per command by `.qr color <name>`.
+///
+/// A palette colours one side of the code and leaves the other alone, and which side depends
+/// entirely on how dark the colour measures. A decoder thresholds brightness, so the two sides
+/// have to stay far apart in luminance; the colour goes on whichever side it can hold.
+///
+/// Dark enough to be a module - ruby at about 54 of 255, sapphire, emerald - and it replaces
+/// @ref dark against the usual white. Too light to threshold against white - gold at about 190,
+/// pale amethyst higher still - and no crop rescues it, so it goes in @ref light instead and the
+/// modules stay black. Black on gold scans as readily as red on white and reads just as yellow.
+struct QrPalette
+{
+    QrModuleStyle dark; ///< Style for dark modules.
+
+    /// Style for light modules, including the quiet zone. Read only when @ref hasLight is set;
+    /// otherwise the geometry's configured light is kept.
+    QrModuleStyle light;
+
+    /// Whether this palette colours the light side rather than the dark one.
+    bool hasLight = false;
+
+    /// Packed styles, indexed exactly as QrRenderGeometry::packed. Read only when
+    /// @ref hasPacked is set.
+    std::array<QrModuleStyle, QR_PACKED_STYLE_COUNT> packed;
+
+    /// Whether @ref packed holds a complete set for the configured rows per line.
+    ///
+    /// Rarely true. A packed crop has to carry the colour and the white as stacked bands in
+    /// one texture, and the black-and-white search that found the shipped set turned up two
+    /// usable textures in the whole client - a coloured equivalent is unlikely to exist. A
+    /// palette without one still draws; it just costs one line per module row.
+    bool hasPacked = false;
+};
+
+/// Returns @p geometry recoloured by @p palette.
+///
+/// A palette with no packed set falls back to one module row per line, which is the only way
+/// to draw a colour the packed crops do not carry. That multiplies the line count by the rows
+/// per line it gave up, so a coloured code is markedly taller than the same payload in black.
+QrRenderGeometry ApplyPalette(QrRenderGeometry geometry, QrPalette const& palette);
+
 enum class QrRenderError : std::uint8_t
 {
     None = 0,

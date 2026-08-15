@@ -24,9 +24,11 @@
 #include "Player.h"
 #include "QuestDef.h"
 #include "ScriptMgr.h"
+#include "SharedDefines.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
 
+#include <string_view>
 #include <unordered_map>
 
 namespace
@@ -112,6 +114,28 @@ namespace QrDelivery
         // through Acore::StringFormat, which would read a '{' in the grid as a placeholder.
         // escapeCharacters stays false so the '|' escapes reach the client intact.
         handler->SendSysMessage(grid);
+    }
+
+    void SendSay(Player* player, std::string const& grid)
+    {
+        // Split here because Player::Say builds one chat packet from whatever it is given
+        // and the client draws one line per packet, so a grid handed over whole would
+        // arrive as a single line with every row run together. SendChat gets away with
+        // passing the grid unsplit only because SendSysMessage splits it internally.
+        //
+        // LANG_UNIVERSAL because the client garbles say text in a language the reading
+        // character does not know, and a garbled row is a destroyed row.
+        std::string_view remaining(grid);
+        while (!remaining.empty())
+        {
+            std::size_t const end = remaining.find('\n');
+            player->Say(remaining.substr(0, end), LANG_UNIVERSAL);
+
+            if (end == std::string_view::npos)
+                break;
+
+            remaining.remove_prefix(end + 1);
+        }
     }
 
     void SendQuestFrame(Player* player, std::string const& title, std::string const& grid)

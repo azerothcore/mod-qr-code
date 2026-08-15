@@ -20,6 +20,11 @@
 #include "Log.h"
 #include "ScriptMgr.h"
 
+#include <algorithm>
+#include <cctype>
+#include <map>
+#include <utility>
+
 QrConfig* QrConfig::instance()
 {
     static QrConfig instance;
@@ -109,6 +114,98 @@ namespace
         static constexpr QrPackDefault none{ "", "", "" };
         return none;
     }
+
+    constexpr char const* PALETTE_PREFIX = "QRCode.Palette.";
+
+    struct QrPaletteDefault
+    {
+        char const* name;
+        char const* texture;
+        char const* texCoords;
+
+        /// Light-side override, empty to keep the configured white. Set only for a colour too
+        /// light to be a module, which then draws black modules on a coloured ground instead.
+        char const* lightTexture;
+        char const* lightTexCoords;
+    };
+
+    /// Colours `.qr color` offers with nothing in the config at all.
+    ///
+    /// Compiled in rather than left to qrcode.conf so a realm that never edits its config still
+    /// has the command, and so an existing qrcode.conf written before palettes existed does not
+    /// silently offer none. Every entry is still overridable per field: the config value wins
+    /// wherever one is set, and a name that appears only in the config is added to these.
+    ///
+    /// "black" is the one entry confirmed against a client: it reuses the DD crop from
+    /// PACK_DEFAULTS above, which the original texture search measured as flat and opaque with
+    /// luminance 0. It draws the same colour the default black-and-white code does, so it is
+    /// useless as a colour and valuable as a control - if ".qr color black" scans and a coloured
+    /// one does not, the palette machinery is fine and the other texture is the problem.
+    ///
+    /// The coloured entries sample gem icons. Interface/Icons is the one directory this module has
+    /// already proven resolves - PACK_DEFAULTS reaches into it for the LDL pattern - and a gem
+    /// icon is a large, saturated, single-hue object filling most of its 64x64 frame, which is
+    /// the closest thing to a flat colour swatch the client ships.
+    ///
+    /// The crop is four texels rather than the middle quarter, and the size is the point. A gem
+    /// icon is faceted, so a wide crop spans a highlight and a shadow and the client stretches
+    /// that gradient across a whole merged run - the modules come out as visible streaks and the
+    /// code will not threshold. A window this small lands inside one facet and is flat whatever
+    /// the artwork does around it.
+    ///
+    /// red, blue and green are confirmed scanning in-game at this crop. The gem family and the
+    /// _02 variant are therefore known to exist, which is what the last two entries rest on -
+    /// they are the same directory, the same naming, and the same window, so they are a far
+    /// shorter reach than a new texture would be. Confirm them the same way if a realm relies on
+    /// them: ".qr sweep" to find a texel, ".qr swatch" to judge it.
+    ///
+    /// What scanning tests settled about luminance, since the obvious argument gets it half wrong.
+    /// A decoder thresholds brightness, not hue, so the question is only ever what a texel
+    /// measures - naming the colour predicts nothing. Emerald is a dark saturated green and scans,
+    /// which pure sRGB green at 182 of 255 never would.
+    ///
+    /// Where a colour lands decides which side of the code it can hold. Ruby, sapphire, emerald
+    /// and the amethyst texel below are all dark enough to be modules against white. Topaz is not:
+    /// gold measures around 190 and no crop of it separates from a white ground, so yellow colours
+    /// the light side instead and keeps black modules. Black on gold scans as readily as red on
+    /// white and reads just as yellow.
+    ///
+    /// The amethyst coordinates come off a ".qr sweep" of the icon rather than from a guess at its
+    /// middle, which is why they look nothing like the others: the stone's centre is a highlight,
+    /// and the saturated purple is off to one side.
+    constexpr QrPaletteDefault PALETTE_DEFAULTS[] =
+    {
+        { "black",  "Interface/Glues/Login/Glues-GermanRating", "128:128:1:51:89:100",       "", "" },
+        { "red",    "Interface/Icons/INV_Misc_Gem_Ruby_02",     "64:64:30:34:38:42",         "", "" },
+        { "blue",   "Interface/Icons/INV_Misc_Gem_Sapphire_02", "64:64:30:34:38:42",         "", "" },
+        { "green",  "Interface/Icons/INV_Misc_Gem_Emerald_02",  "64:64:30:34:38:42",         "", "" },
+        { "purple", "Interface/Icons/INV_Misc_Gem_Amethyst_02", "1000:1000:809:815:809:815", "", "" },
+
+        // Black modules on a gold ground: the dark crop is the measured flat black, so only the
+        // ground is artwork, and a ground being slightly uneven costs far less than a module would.
+        { "yellow", "Interface/Glues/Login/Glues-GermanRating", "128:128:1:51:89:100",
+                    "Interface/Icons/INV_Misc_Gem_Topaz_02",    "64:64:30:34:38:42" },
+    };
+
+    QrPaletteDefault const& PaletteDefaultFor(std::string const& name)
+    {
+        for (QrPaletteDefault const& entry : PALETTE_DEFAULTS)
+            if (name == entry.name)
+                return entry;
+
+        // A palette the config invented has no compiled-in fallback, so every field of it has
+        // to come from the config and the caller reports a missing texture.
+        static constexpr QrPaletteDefault none{ "", "", "", "", "" };
+        return none;
+    }
+
+    std::string ToLower(std::string text)
+    {
+        std::transform(text.begin(), text.end(), text.begin(),
+            [](unsigned char c) { return char(std::tolower(c)); });
+
+        return text;
+    }
 }
 
 QrRenderGeometry QrConfig::LoadGeometry(std::string const& prefix, QrRenderGeometry const& defaults) const
@@ -129,17 +226,7 @@ QrRenderGeometry QrConfig::LoadGeometry(std::string const& prefix, QrRenderGeome
 
     geometry.anchorBottom = sConfigMgr->GetOption<bool>("QRCode.AnchorBottom", true);
 
-    if (sConfigMgr->GetOption<int32>("QRCode.PackRows", -1) != -1)
-        LOG_ERROR("module.qrcode", "QRCode.PackRows has been replaced by QRCode.RowsPerLine "
-            "(1 = one row per line, 2 = what PackRows = 1 used to do) and is being ignored");
-
-    geometry.rowsPerLine = sConfigMgr->GetOption<uint32>("QRCode.RowsPerLine", 3);
-    if (!geometry.rowsPerLine || geometry.rowsPerLine > QR_MAX_ROWS_PER_LINE)
-    {
-        LOG_ERROR("module.qrcode", "QRCode.RowsPerLine = {} is outside 1..{}, falling back to 3",
-            geometry.rowsPerLine, QR_MAX_ROWS_PER_LINE);
-        geometry.rowsPerLine = 3;
-    }
+    geometry.rowsPerLine = RowsPerLine;
 
     std::size_t const styleCount = std::size_t(1) << geometry.rowsPerLine;
     bool complete = true;
@@ -179,6 +266,105 @@ QrRenderGeometry QrConfig::LoadGeometry(std::string const& prefix, QrRenderGeome
     return geometry;
 }
 
+/// Builds the `.qr color` palettes from every QRCode.Palette.<name>.* option present.
+///
+/// The names are recovered from the option keys rather than declared in a list of their own,
+/// so a realm adds a colour by writing one option and running ".reload config" - there is no
+/// second place to keep in step, and no rebuild for a colour the module never shipped.
+void QrConfig::LoadPalettes()
+{
+    Palettes.clear();
+
+    std::size_t const prefixLength = std::char_traits<char>::length(PALETTE_PREFIX);
+
+    // Lowercased name to the spelling its config keys actually use. Config lookups are
+    // case-sensitive while `.qr color red` must find a palette written as RED, so the two cannot
+    // be the same string: searching for the lowercased spelling would miss every override an
+    // admin capitalised.
+    std::map<std::string, std::string> names;
+
+    for (QrPaletteDefault const& entry : PALETTE_DEFAULTS)
+        names.emplace(entry.name, entry.name);
+
+    for (std::string const& key : sConfigMgr->GetKeysByString(PALETTE_PREFIX))
+    {
+        // Guards a key that is exactly the prefix, or one naming no field after the colour:
+        // both would otherwise register a palette with an empty name.
+        std::size_t const separator = key.find('.', prefixLength);
+        if (separator == std::string::npos || separator == prefixLength)
+            continue;
+
+        std::string spelling = key.substr(prefixLength, separator - prefixLength);
+        std::string const lowered = ToLower(spelling);
+
+        // Assigned rather than inserted so a config spelling replaces the built-in one, which is
+        // what makes a capitalised override of a shipped colour resolve.
+        names[lowered] = std::move(spelling);
+    }
+
+    for (auto const& entry : names)
+    {
+        std::string const& name = entry.first;
+        std::string const base = PALETTE_PREFIX + entry.second;
+
+        QrPaletteDefault const& fallback = PaletteDefaultFor(name);
+
+        // Silent lookups throughout: every shipped colour resolves from PALETTE_DEFAULTS, so its
+        // config keys are legitimately absent. Left logging, each one would announce a dozen
+        // missing options on every reload and bury the one gap that matters, reported below.
+        QrPalette palette;
+        palette.dark.texture = sConfigMgr->GetOption<std::string>(base + ".DarkTexture", fallback.texture, false);
+        palette.dark.texCoords =
+            sConfigMgr->GetOption<std::string>(base + ".DarkTexCoords", fallback.texCoords, false);
+
+        // A palette is its dark texture. Without one there is nothing to draw, and offering the
+        // name anyway would put a blank grid in front of a player who asked for a colour. Only a
+        // config-invented name can land here; the shipped ones always carry a texture.
+        if (palette.dark.texture.empty())
+        {
+            LOG_ERROR("module.qrcode", "Palette '{}' has no {}.DarkTexture, so the colour is not offered",
+                name, base);
+            continue;
+        }
+
+        // Optional, and only wanted for a colour too light to be a module: setting it draws black
+        // modules on a coloured ground rather than coloured modules on white.
+        palette.light.texture =
+            sConfigMgr->GetOption<std::string>(base + ".LightTexture", fallback.lightTexture, false);
+        palette.light.texCoords =
+            sConfigMgr->GetOption<std::string>(base + ".LightTexCoords", fallback.lightTexCoords, false);
+        palette.hasLight = !palette.light.texture.empty();
+
+        // A packed set is all or nothing: one missing pattern leaves holes in the grid, which
+        // still looks like a code and still will not scan. An incomplete set is therefore
+        // dropped whole and the palette draws one module row per line instead.
+        std::size_t const styleCount = std::size_t(1) << RowsPerLine;
+        std::size_t found = 0;
+
+        for (std::size_t state = 0; state < styleCount; ++state)
+        {
+            std::string const pattern = PackPatternName(state, RowsPerLine);
+
+            palette.packed[state].texture =
+                sConfigMgr->GetOption<std::string>(base + ".Pack." + pattern + ".Texture", "", false);
+            palette.packed[state].texCoords =
+                sConfigMgr->GetOption<std::string>(base + ".Pack." + pattern + ".TexCoords", "", false);
+
+            if (!palette.packed[state].texture.empty())
+                ++found;
+        }
+
+        palette.hasPacked = RowsPerLine > 1 && found == styleCount;
+
+        if (found && found < styleCount)
+            LOG_ERROR("module.qrcode", "Palette '{}' supplies {} of the {} pack textures needed at "
+                "QRCode.RowsPerLine = {}; the partial set is ignored and the colour draws one module "
+                "row per line", name, found, styleCount, RowsPerLine);
+
+        Palettes.emplace(name, std::move(palette));
+    }
+}
+
 void QrConfig::Load()
 {
     Enabled = sConfigMgr->GetOption<bool>("QRCode.Enable", true);
@@ -207,6 +393,21 @@ void QrConfig::Load()
     {
         LOG_ERROR("module.qrcode", "QRCode.MaxVersion = {} is outside 1..40, falling back to 5", MaxVersion);
         MaxVersion = 5;
+    }
+
+    if (sConfigMgr->GetOption<int32>("QRCode.PackRows", -1) != -1)
+        LOG_ERROR("module.qrcode", "QRCode.PackRows has been replaced by QRCode.RowsPerLine "
+            "(1 = one row per line, 2 = what PackRows = 1 used to do) and is being ignored");
+
+    // Parsed before the geometries so both of them and the palettes size their style sets the
+    // same way; a palette counted against a different number of rows would look complete when
+    // it is not.
+    RowsPerLine = sConfigMgr->GetOption<uint32>("QRCode.RowsPerLine", 3);
+    if (!RowsPerLine || RowsPerLine > QR_MAX_ROWS_PER_LINE)
+    {
+        LOG_ERROR("module.qrcode", "QRCode.RowsPerLine = {} is outside 1..{}, falling back to 3",
+            RowsPerLine, QR_MAX_ROWS_PER_LINE);
+        RowsPerLine = 3;
     }
 
     MaxInputLength  = sConfigMgr->GetOption<uint32>("QRCode.MaxInputLength", 96);
@@ -250,6 +451,25 @@ void QrConfig::Load()
     uint32 const maxPayloadBytes = sConfigMgr->GetOption<uint32>("QRCode.MaxPayloadBytes", 48000);
     ChatGeometry.maxPayloadBytes  = maxPayloadBytes;
     QuestGeometry.maxPayloadBytes = maxPayloadBytes;
+
+    LoadPalettes();
+}
+
+QrPalette const* QrConfig::FindPalette(std::string const& name) const
+{
+    auto const itr = Palettes.find(ToLower(name));
+    return itr == Palettes.end() ? nullptr : &itr->second;
+}
+
+std::vector<std::string> QrConfig::PaletteNames() const
+{
+    std::vector<std::string> names;
+    names.reserve(Palettes.size());
+
+    for (auto const& entry : Palettes)
+        names.push_back(entry.first);
+
+    return names;
 }
 
 QrRenderGeometry const& QrConfig::ActiveGeometry() const

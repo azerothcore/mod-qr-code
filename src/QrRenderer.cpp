@@ -82,6 +82,50 @@ namespace
     }
 }
 
+QrRenderGeometry ApplyPalette(QrRenderGeometry geometry, QrPalette const& palette)
+{
+    geometry.dark = palette.dark;
+
+    if (palette.hasLight)
+        geometry.light = palette.light;
+
+    // Measured, not reasoned: a green code that would not scan at one module of quiet zone scans
+    // at two. See QR_QUIET_ZONE_COLOUR_MODULES for why colour is the case that needs the margin.
+    // Raised rather than set, so a config asking for the spec's four still gets four.
+    geometry.quietZone = std::max(geometry.quietZone, QR_QUIET_ZONE_COLOUR_MODULES);
+
+    if (palette.hasPacked)
+    {
+        geometry.packed = palette.packed;
+        return geometry;
+    }
+
+    // Dropping to one row per line without touching the pixel sizes leaves each line carrying a
+    // module a fraction of its height. The renderer closes that gap with a per-line offset, and
+    // the offset accumulates: at the shipped 3x5 geometry the top row of a version 2 code ends up
+    // 234 px below the chat line it was booked against, so the grid draws well clear of its own
+    // lines and whatever is printed next lands on top of it.
+    //
+    // Scaling the module up by exactly the packing it gave up keeps the drawn height of a line
+    // unchanged, and with it the per-line offset, so the fallback inherits the vertical behaviour
+    // of the geometry that was actually tuned in-game. Width scales too, or the modules would come
+    // out as many times taller than they are wide.
+    if (geometry.rowsPerLine > 1)
+    {
+        std::uint32_t const lost = geometry.rowsPerLine;
+
+        // Derived from lineAdvance = 2 * moduleHeight - fontAdvance, the relation the tuned chat
+        // defaults satisfy: holding the font advance fixed while the module grows by (lost - 1)
+        // of its own height moves lineAdvance by twice that.
+        geometry.lineAdvance += 2 * std::int32_t(geometry.moduleHeight) * (std::int32_t(lost) - 1);
+        geometry.moduleHeight *= lost;
+        geometry.moduleWidth *= lost;
+    }
+
+    geometry.rowsPerLine = 1;
+    return geometry;
+}
+
 QrRenderResult RenderModuleGrid(std::vector<bool> const& modules, std::uint32_t width, std::uint32_t height,
     QrRenderGeometry const& geometry)
 {

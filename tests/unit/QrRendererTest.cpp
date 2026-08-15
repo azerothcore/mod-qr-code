@@ -319,3 +319,147 @@ TEST(QrRendererTest, ProducesOneLinePerPaddedRow)
     EXPECT_EQ(std::size_t(29), SplitRows(result.text).size());
     EXPECT_EQ(std::size_t(28), std::count(result.text.begin(), result.text.end(), '\n'));
 }
+
+/// The whole point of a palette: the colour reaches the dark modules and nothing else does.
+TEST(QrRendererTest, PaletteRecoloursOnlyTheDarkModules)
+{
+    QrRenderGeometry geometry = SquareGeometry();
+    geometry.rowsPerLine = 1;
+
+    QrPalette palette;
+    palette.dark.texture   = "Palette/Red";
+    palette.dark.texCoords = "100:100:40:60:52:68";
+
+    QrRenderGeometry const recoloured = ApplyPalette(geometry, palette);
+
+    EXPECT_EQ("Palette/Red", recoloured.dark.texture);
+    EXPECT_EQ("100:100:40:60:52:68", recoloured.dark.texCoords);
+    EXPECT_EQ(LIGHT_TEXTURE, recoloured.light.texture);
+    EXPECT_EQ(geometry.moduleWidth, recoloured.moduleWidth);
+    EXPECT_EQ(geometry.lineAdvance, recoloured.lineAdvance);
+}
+
+/// A palette with no packed set has to drop to one row per line, because the packed styles
+/// still hold the previous colour and would draw it alongside the new one.
+TEST(QrRendererTest, PaletteWithoutPackedStylesFallsBackToOneRowPerLine)
+{
+    QrRenderGeometry geometry = SquareGeometry();
+    geometry.rowsPerLine = 3;
+
+    QrPalette palette;
+    palette.dark.texture = "Palette/Red";
+
+    EXPECT_EQ(1u, ApplyPalette(geometry, palette).rowsPerLine);
+}
+
+/// Giving up the packing has to grow the module by the same factor, or each line carries a
+/// module a fraction of its height and the offset that closes the gap accumulates down the
+/// grid until the code draws clear of the lines it reserved.
+TEST(QrRendererTest, PaletteFallbackKeepsTheDrawnLineHeight)
+{
+    QrRenderGeometry geometry = SquareGeometry();
+    geometry.rowsPerLine  = 3;
+    geometry.moduleWidth  = 4;
+    geometry.moduleHeight = 5;
+    geometry.lineAdvance  = -4;
+
+    QrRenderGeometry const fallback = ApplyPalette(geometry, QrPalette{});
+
+    // Three 5 px rows became one 15 px row, so a line draws exactly as tall as it did before.
+    EXPECT_EQ(15u, fallback.moduleHeight);
+    EXPECT_EQ(12u, fallback.moduleWidth);
+
+    // lineAdvance = 2 * moduleHeight - fontAdvance, the relation the tuned defaults satisfy.
+    EXPECT_EQ(16, fallback.lineAdvance);
+
+    // What all of that is for: the per-line step is unchanged, so the offsets stay small.
+    auto const step = [](QrRenderGeometry const& g)
+    {
+        return (2 - std::int32_t(g.rowsPerLine)) * std::int32_t(g.moduleHeight) - g.lineAdvance;
+    };
+
+    EXPECT_EQ(step(geometry), step(fallback));
+}
+
+/// A colour too light to be a module colours the ground instead, so the modules stay dark and the
+/// contrast survives. Without this, gold has nowhere to go.
+TEST(QrRendererTest, PaletteCanColourTheLightSideInstead)
+{
+    QrRenderGeometry geometry = SquareGeometry();
+
+    QrPalette gold;
+    gold.dark.texture  = "Measured/Black";
+    gold.light.texture = "Gem/Topaz";
+    gold.hasLight      = true;
+
+    QrRenderGeometry const recoloured = ApplyPalette(geometry, gold);
+
+    EXPECT_EQ("Measured/Black", recoloured.dark.texture);
+    EXPECT_EQ("Gem/Topaz", recoloured.light.texture);
+}
+
+/// The ordinary case must not touch light, or every dark-side colour would lose its white.
+TEST(QrRendererTest, PaletteLeavesLightAloneByDefault)
+{
+    QrRenderGeometry geometry = SquareGeometry();
+
+    QrPalette red;
+    red.dark.texture = "Gem/Ruby";
+
+    EXPECT_EQ(LIGHT_TEXTURE, ApplyPalette(geometry, red).light.texture);
+}
+
+/// Measured in-game: a green code that would not scan at one module of quiet zone scans at two,
+/// the chat frame's dark surround leaving nothing else to separate the symbol from it.
+TEST(QrRendererTest, PaletteWidensAThinQuietZone)
+{
+    QrRenderGeometry geometry = SquareGeometry();
+    geometry.quietZone = QR_QUIET_ZONE_DEFAULT_MODULES;
+
+    EXPECT_EQ(QR_QUIET_ZONE_COLOUR_MODULES, ApplyPalette(geometry, QrPalette{}).quietZone);
+}
+
+/// Raised, never lowered: a realm that asks for the spec's four still gets four.
+TEST(QrRendererTest, PaletteKeepsAQuietZoneWiderThanItsOwn)
+{
+    QrRenderGeometry geometry = SquareGeometry();
+    geometry.quietZone = QR_QUIET_ZONE_MODULES;
+
+    EXPECT_EQ(QR_QUIET_ZONE_MODULES, ApplyPalette(geometry, QrPalette{}).quietZone);
+}
+
+/// A palette that carries a packed set changes nothing but colour - the geometry it was tuned
+/// against is still the geometry it draws at.
+TEST(QrRendererTest, PaletteWithPackedStylesLeavesTheGeometryAlone)
+{
+    QrRenderGeometry geometry = SquareGeometry();
+    geometry.rowsPerLine = 3;
+
+    QrPalette palette;
+    palette.dark.texture = "Palette/Red";
+    palette.hasPacked    = true;
+
+    QrRenderGeometry const recoloured = ApplyPalette(geometry, palette);
+
+    EXPECT_EQ(geometry.moduleWidth, recoloured.moduleWidth);
+    EXPECT_EQ(geometry.moduleHeight, recoloured.moduleHeight);
+    EXPECT_EQ(geometry.lineAdvance, recoloured.lineAdvance);
+}
+
+/// A palette that does carry a set keeps the packing, so a realm that finds coloured crops
+/// pays none of the extra lines.
+TEST(QrRendererTest, PaletteWithPackedStylesKeepsThePacking)
+{
+    QrRenderGeometry geometry = SquareGeometry();
+    geometry.rowsPerLine = 2;
+
+    QrPalette palette;
+    palette.dark.texture = "Palette/Red";
+    palette.hasPacked    = true;
+    palette.packed[0b10].texture = "Palette/Red/DL";
+
+    QrRenderGeometry const recoloured = ApplyPalette(geometry, palette);
+
+    EXPECT_EQ(2u, recoloured.rowsPerLine);
+    EXPECT_EQ("Palette/Red/DL", recoloured.packed[0b10].texture);
+}

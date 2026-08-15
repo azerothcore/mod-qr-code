@@ -31,6 +31,13 @@ namespace QrDelivery
     /// Sends the grid as system chat, one packet per row.
     void SendChat(ChatHandler* handler, std::string const& grid);
 
+    /// Says the grid as @p player, one say per row, so every client in say range draws it.
+    ///
+    /// Each line arrives behind the client's "<name> says:" prefix. That is the same width
+    /// on every row, so it shifts the whole grid sideways rather than shearing it, which is
+    /// why this works at all where chat timestamps do not.
+    void SendSay(Player* player, std::string const& grid);
+
     /// Opens a quest-details frame carrying the grid as the quest description.
     ///
     /// The frame is server-pushed and its strings are inline, so nothing has to exist in

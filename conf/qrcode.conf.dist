@@ -145,6 +145,118 @@
 #
 ###################################################################################################
 #
+#    COLOUR PALETTES
+#
+#    ".qr color <name> <text>" draws a code with its dark modules in a named colour. Only the dark
+#    side changes: light is what a decoder thresholds against, so colouring it spends the contrast
+#    the code is carrying.
+#
+#    black, red, blue, green, yellow and purple are compiled in and need no configuration at all -
+#    the blocks at the end of this section restate the built-in values so they are visible and easy
+#    to edit, and deleting them changes nothing. Every field is overridable on its own: set only
+#    DarkTexCoords and the built-in texture is still used.
+#
+#    red, blue and green are confirmed scanning in-game. yellow and purple reuse the same gem
+#    family, variant and crop, so they are a short reach rather than a new guess, but they have not
+#    been checked - and yellow is the likeliest of the set to come out too light to threshold.
+#
+#    "black" is the control. It reuses a crop the original texture search measured as flat, opaque
+#    and luminance 0, so it draws the same colour an ordinary code does and is useless as a colour.
+#    It is here to separate two failures: if ".qr color black" scans and ".qr color red" does not,
+#    the palette machinery is fine and the red texture is the problem. Start there.
+#
+#    Extra colours are added the same way, under any name. Palette names are read from the option
+#    keys themselves, so a new colour is one option and a ".reload config" - there is no list to
+#    keep in step and nothing to rebuild. ".qr color" with no name lists what the realm has.
+#
+#    Two things decide whether a colour works, and neither is how it looks:
+#
+#    1. LUMINANCE. A decoder thresholds brightness, not hue. Pure red comes out around 54 of 255
+#       and pure blue around 18, so both read as dark against white and scan. Pure green is about
+#       182 - barely darker than the white background - and will not. A green that scans has to be
+#       dark enough that it reads nearly black anyway. Yellow (around 226) is hopeless.
+#    2. FLATNESS AND OPACITY. A crop is stretched across a whole merged run of modules, so a
+#       gradient smears. Any alpha in the crop shows the chat frame's dark background through it,
+#       which destroys the light side of the code.
+#
+#    A coloured palette almost always costs three times the lines. Packing needs a texture holding
+#    the colour and the white as stacked bands in one crop, and the black-and-white search that
+#    produced the QRCode.Pack.* defaults found two usable textures in the whole client - a coloured
+#    equivalent is unlikely to exist. Without a complete QRCode.Palette.<name>.Pack.* set the colour
+#    falls back to one module row per line, so keep coloured codes short. A version 1 payload is 23
+#    lines, which a default chat frame shows; a 2FA payload at 35 is not worth attempting in colour.
+#
+#    The coloured built-ins crop gem icons. Interface/Icons is the one directory this module has
+#    already proven resolves - the pack defaults reach into it - and a gem icon is a large,
+#    saturated, single-hue object filling most of its 64x64 frame, which is about the closest the
+#    client comes to shipping a flat colour swatch. The crop takes the middle quarter, where the
+#    stone is rather than its border or highlight.
+#
+#    THE COLOURED PATHS ARE CANDIDATES, NOT MEASUREMENTS, and one earlier set was already wrong:
+#    Interface/COMMON/Indicator-* does not exist, so it drew nothing at all and the chat frame's
+#    dark background read as black modules. Which textures carry a flat opaque region of a given
+#    hue cannot be known from the server side, so check before putting one in front of players.
+#
+#    Two commands do that. Start with a sweep, which divides a texture into a grid of crops and
+#    draws one bar per cell with the coordinates beside it:
+#
+#        .qr sweep Interface/Icons/INV_Misc_Gem_Ruby_02
+#
+#    Every bar blank means the path is wrong, not the crop. Otherwise pick the bar that looks flat
+#    and dark and confirm its coordinates:
+#
+#        .qr swatch Interface/Icons/INV_Misc_Gem_Ruby_02 100:100:25:50:25:50
+#
+#    That draws the crop three ways - solid, against white, against the configured dark - and
+#    prints the config lines to paste. Band 2 must read as a clean checker or the colour is too
+#    light to scan; band 3 must not look solid or the colour is indistinguishable from black.
+#
+#    QRCode.Palette.<name>.DarkTexture
+#        Description: Texture drawn for dark modules in this colour. A name with no dark texture
+#                     and no built-in is not offered, and the module logs which one it dropped.
+#
+#    QRCode.Palette.<name>.DarkTexCoords
+#        Description: Sub-rect of that texture, same "texWidth:texHeight:left:right:top:bottom"
+#                     format as QRCode.DarkTexCoords. Stating 100:100 makes the edges percentages,
+#                     which is the right form for a candidate whose real pixel size is unknown.
+#
+#    QRCode.Palette.<name>.LightTexture / QRCode.Palette.<name>.LightTexCoords
+#        Description: Optional, and only wanted for a colour too light to be a module. Setting it
+#                     draws black modules on a coloured ground instead of coloured modules on
+#                     white, which is the only way a bright colour scans - gold measures around
+#                     190 of 255 and no crop of it separates from a white background. Leave both
+#                     unset and the code keeps QRCode.LightTexture, as the dark-side colours do.
+#
+#    QRCode.Palette.<name>.Pack.<PATTERN>.Texture / .TexCoords
+#        Description: Optional packed styles for this colour, same patterns as QRCode.Pack.*. The
+#                     set is all or nothing: a partial one is ignored whole, with a log line saying
+#                     so, because a grid with holes still looks like a code and still will not scan.
+#
+###################################################################################################
+
+QRCode.Palette.black.DarkTexture = "Interface/Glues/Login/Glues-GermanRating"
+QRCode.Palette.black.DarkTexCoords = "128:128:1:51:89:100"
+
+QRCode.Palette.red.DarkTexture = "Interface/Icons/INV_Misc_Gem_Ruby_02"
+QRCode.Palette.red.DarkTexCoords = "64:64:30:34:38:42"
+
+QRCode.Palette.blue.DarkTexture = "Interface/Icons/INV_Misc_Gem_Sapphire_02"
+QRCode.Palette.blue.DarkTexCoords = "64:64:30:34:38:42"
+
+QRCode.Palette.green.DarkTexture = "Interface/Icons/INV_Misc_Gem_Emerald_02"
+QRCode.Palette.green.DarkTexCoords = "64:64:30:34:38:42"
+
+QRCode.Palette.purple.DarkTexture = "Interface/Icons/INV_Misc_Gem_Amethyst_02"
+QRCode.Palette.purple.DarkTexCoords = "1000:1000:809:815:809:815"
+
+# Gold is too light to be a module, so yellow colours the ground and keeps black modules.
+QRCode.Palette.yellow.DarkTexture = "Interface/Glues/Login/Glues-GermanRating"
+QRCode.Palette.yellow.DarkTexCoords = "128:128:1:51:89:100"
+QRCode.Palette.yellow.LightTexture = "Interface/Icons/INV_Misc_Gem_Topaz_02"
+QRCode.Palette.yellow.LightTexCoords = "64:64:30:34:38:42"
+
+###################################################################################################
+#
 #    ROW PACKING
 #
 #    A code is one chat line per module row by default, and running out of frame height is the

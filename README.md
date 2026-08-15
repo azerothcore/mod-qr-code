@@ -115,12 +115,172 @@ Then edit `qrcode.conf` in your config directory (the build copies `conf/qrcode.
 | --- | --- | --- |
 | `.qr <text>` | Game Master | Renders `<text>` as a QR code via the configured backend. |
 | `.qr gossip <text>` | Game Master | Opens a gossip menu whose "Show the QR code" option presents the code, whatever the backend. |
+| `.qr say <text>` | Game Master | Says the code aloud, so everyone in say range can scan it off their own screen. |
+| `.qr color [name] [text]` | Game Master | Renders in one of the realm's configured colours. With no name, lists them. |
+| `.qr swatch <texture> [texCoords]` | Game Master | Draws a candidate texture three ways so you can judge it as a module colour. |
+| `.qr sweep <texture> [cells]` | Game Master | Samples a texture on a grid, drawing one flat bar per point with its texCoords beside it. |
 | `.qr grid [rows] [cols]` | Game Master | Checkerboard at the active geometry, no QR encoding. Defaults to 10×10. |
 | `.qr probe <n>` | Game Master | Draws one line of `n` alternating modules ending in a three-module black sentinel. |
 | `.account 2fa qrcode [token]` | Player | Draws a new two-factor key as a code to scan; run again with a token to enable it. **Off by default** — see below. |
 
 All of them need an in-game session; none work from the console. Both sides of `grid` are optional —
 a single argument means a square of that size.
+
+### Saying a code to the room
+
+`.qr say <text>` sends the grid as the GM's own say chat instead of as a system message, one say per
+line, so every client within `ListenRange.Say` (40 yards by default) draws the code in its own chat
+frame. It is the way to put a scannable link in front of a crowd — an event sign-up, a Discord
+invite — without every player having to run a command.
+
+The rows always render at the chat geometry, whatever `QRCode.Backend` says, since chat is where they
+land. Everything the chat backend needs still applies to every viewer individually: a chat frame tall
+enough for the whole code, wide enough not to wrap a row, and timestamps off.
+
+Each line arrives behind the client's `<name> says:` prefix. That prefix is the same width on every
+row, so it shifts the grid sideways as a block rather than shearing it — which is exactly why
+timestamps break the code and this does not. The say is sent as the universal language, because the
+client garbles say text in a language the reading character does not know, and a garbled row is a
+destroyed row.
+
+Two things to be aware of before using it in a busy place. Viewers with chat bubbles enabled get one
+bubble per line, each carrying a couple of kilobytes of escape sequences — the bubbles are not a
+surface this module has calibrated, and they are the first thing to blame if a client behaves oddly.
+And a code is tens of kilobytes sent to every player in range, not just to the caller, so leave the
+command at Game Master and leave `QRCode.CooldownSeconds` alone.
+
+### Colouring a code
+
+`.qr color <name> <text>` draws the dark modules in a named colour. `.qr color` on its own lists
+what is available.
+
+`black`, `red`, `blue`, `green`, `yellow` and `purple` are compiled in and work with no configuration
+at all, including on a `qrcode.conf` written before palettes existed. `qrcode.conf.dist` restates
+their values so they are visible and easy to edit; deleting that block changes nothing.
+
+All five colours are confirmed scanning in-game.
+
+![A red QR code drawn in the chat frame](images/qr-code-red.png)
+![A green QR code drawn in the chat frame](images/qr-code-green.png)
+![A blue QR code drawn in the chat frame](images/qr-code-blue.png)
+
+The gradient across each module there is the gem's own facets, and it is cosmetic: the crop is small
+enough that every module stays inside one facet, so the code still thresholds. These also show the
+size trade-off below — the same payload in black and white is a third as tall.
+
+**Which side a colour goes on depends on how dark it measures, not on its name.** A decoder
+thresholds brightness, so the two sides have to stay far apart in luminance. Ruby (~54 of 255),
+sapphire, emerald and amethyst are all dark enough to be modules against white, so they replace the
+dark side. Gold is around 190 and no crop of it separates from a white ground — so `yellow` sets
+`LightTexture` instead, colouring the background and keeping black modules. Black on gold scans as
+readily as red on white and still reads as a yellow code:
+
+![A yellow QR code: black modules on a gold ground](images/qr-code-yellow.png)
+
+Purple shows the other half of the lesson. Its first crop came out pale lilac because the middle of
+an amethyst is a highlight, not the stone — the saturated colour is off to one side, and `.qr sweep`
+is what found it:
+
+![A purple QR code drawn in the chat frame](images/qr-code-purple.png)
+
+`LightTexture` is available to any colour you add, and is the answer whenever a swept bar looks too
+pale to be a module:
+
+```
+QRCode.Palette.gold.DarkTexture = "Interface/Glues/Login/Glues-GermanRating"
+QRCode.Palette.gold.DarkTexCoords = "128:128:1:51:89:100"
+QRCode.Palette.gold.LightTexture = "Interface/Icons/INV_Misc_Gem_Topaz_02"
+QRCode.Palette.gold.LightTexCoords = "64:64:30:34:38:42"
+```
+
+The dark crop there is the measured flat black, so only the ground is artwork — and an uneven
+ground costs far less than an uneven module.
+
+A coloured code is given a quiet zone of two modules whatever `QRCode.QuietZone` says, unless that
+asks for more. This is measured, not reasoned — green would not scan at one and does at two. Colour
+is the case that needs it: the crop comes from artwork rather than the measured black-and-white set
+so its modules are less uniform, and the chat frame's background is dark, which leaves the quiet
+zone as the only thing separating the symbol from a dark surround. It costs two lines.
+
+`black` is the control. It reuses a crop the original texture search measured as flat, opaque and
+luminance 0, so it draws the same colour an ordinary code does and is useless as a colour. It is
+there to separate two failures: if `.qr color black` scans and `.qr color red` does not, the palette
+machinery is fine and the red texture is the problem.
+
+Only the dark side changes. Light is what a decoder thresholds against, so colouring it spends the
+contrast the code is carrying.
+
+Every field overrides on its own — set just the crop and the built-in texture is still used:
+
+```
+QRCode.Palette.red.DarkTexCoords = "100:100:40:60:40:60"
+```
+
+Extra colours go in under any name, and a `.reload config` picks them up. The names are read from
+the option keys themselves, so there is no list to maintain and nothing to rebuild:
+
+```
+QRCode.Palette.crimson.DarkTexture = "Interface/Icons/INV_Misc_Gem_Ruby_02"
+QRCode.Palette.crimson.DarkTexCoords = "64:64:24:40:24:40"
+```
+
+Two things decide whether a colour works, and neither is how it looks:
+
+- **Luminance.** A decoder thresholds brightness, not hue. Pure red comes out around 54 of 255 and
+  pure blue around 18, so both read as dark against white and scan. Pure green is about 182 — barely
+  darker than the white background — and will not. A green that scans has to be dark enough to read
+  as nearly black anyway.
+- **Flatness and opacity.** A crop is stretched across a whole merged run of modules, so a gradient
+  smears. Any alpha in the crop shows the chat frame's dark background through it, which destroys
+  the light side of the code.
+
+**A coloured code is usually three times as tall.** Packing needs a texture holding the colour and
+the white as stacked bands in one crop, and the search that produced the black-and-white
+`QRCode.Pack.*` defaults found two usable textures in the whole client — a coloured equivalent is
+unlikely to exist. Without a complete `QRCode.Palette.<name>.Pack.*` set the colour falls back to one
+module row per line, and the command says so after drawing. Keep coloured payloads short: a version 1
+code is 23 lines, which a default chat frame shows; a 2FA payload at 35 is not worth attempting in
+colour.
+
+The coloured built-ins sample gem icons. `Interface/Icons` is the one directory this module has
+already proven resolves — the pack defaults reach into it — and a gem icon is a large, saturated,
+single-hue object filling most of its 64×64 frame, about the closest the client comes to shipping a
+flat colour swatch.
+
+**The crop is four texels, and the size is the point.** A gem icon is faceted, so a wide crop spans a
+highlight and a shadow, and the client stretches that gradient across a whole merged run — the
+modules come out as visible streaks and the code will not threshold. A window this small lands
+inside a single facet and is flat whatever the artwork does around it.
+
+**The coloured paths are candidates, not measurements, and one earlier set was already wrong.**
+`Interface/COMMON/Indicator-*` does not exist in the client: the escapes drew nothing at all, and the
+chat frame's dark background showing through the holes made the result look like an ordinary
+black-and-white code that simply refused to scan. Which textures carry a flat, opaque region of a
+given hue cannot be determined from the server side, so check before trusting one.
+
+### Finding a texture
+
+Start with a sweep — it samples the texture on a grid and draws one bar per point, with the
+coordinates beside it. Each sample is a few texels, so every bar is a flat colour and its
+coordinates are usable exactly as printed:
+
+```
+.qr sweep Interface/Icons/INV_Misc_Gem_Ruby_02
+.qr sweep Interface/Icons/INV_Misc_Gem_Ruby_02 8    -- finer, 64 samples
+```
+
+**Every bar blank means the path is wrong, not the crop**, which is the fastest way to rule a texture
+out. Otherwise pick the darkest, most saturated bar and confirm its coordinates:
+
+```
+.qr swatch Interface/Icons/INV_Misc_Gem_Ruby_02 100:100:35:39:60:64
+```
+
+That draws three bands — the crop solid, the crop against white, the crop against the configured
+dark — and prints the config lines to paste. Solid shows whether the crop is flat. Band 2 is what the
+decoder sees: if it does not read as a clean checker, the colour is too light to scan. Band 3 says
+whether the colour is distinguishable from plain black; if it looks solid, the palette buys nothing
+over the default.
 
 ### Two-factor setup by QR
 
@@ -215,8 +375,9 @@ INSERT INTO `command` (`name`, `security`, `help`) VALUES
 ('qr', 0, 'Syntax: .qr $text\r\nRenders $text as a scannable QR code.');
 ```
 
-Reload with `.reload command`. Leave `grid` and `probe` at Game Master — they are calibration tools,
-and `probe` exists specifically to send lines large enough to find the client's limits.
+Reload with `.reload command`. Leave `grid`, `probe` and `swatch` at Game Master — they are
+calibration tools, and `probe` exists specifically to send lines large enough to find the client's
+limits. Leave `say` there too: it is the one command that ships its output to other people's clients.
 
 The per-player cooldown and the payload echo's escape sanitisation are always compiled in, precisely
 so that opening the command up is a database change rather than a rebuild.
@@ -237,6 +398,7 @@ before first use:
 | `QRCode.TwoFA.Enable` | 1 | Offers `.account 2fa qrcode`. Turn off if you set `RowsPerLine` to 1 |
 | `QRCode.TwoFA.Issuer` | "" | Label shown by the authenticator app; empty means the realm name |
 | `QRCode.DarkTexture` / `QRCode.LightTexture` | see conf | Texture per module colour — tinting is impossible |
+| `QRCode.Palette.<name>.DarkTexture` | see conf | Overrides or adds a `.qr color` colour. The five built-ins are unverified candidates |
 | `QRCode.DarkTexCoords` / `QRCode.LightTexCoords` | see conf | Sub-rect crop, `texW:texH:left:right:top:bottom` |
 | `QRCode.Chat.ModuleWidth` / `.ModuleHeight` | 4 / 5 | Module size. Paired with `RowsPerLine` — see below |
 | `QRCode.Chat.LineAdvance` | -4 | Row-offset dial; lower packs lines tighter |
