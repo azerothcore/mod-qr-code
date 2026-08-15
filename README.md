@@ -73,14 +73,15 @@ A packed escape needs a texture that already contains the whole column, because 
 exactly one texture; a dark module and a light one cannot be composited. Scanning the 3.3.5a
 interface textures for an opaque rectangle with a hard horizontal black/white edge turns up 80
 candidates and only two with flat bands in both directions. **Supply, not arithmetic, is what limits
-this.** Two rows needs 4 crops and is comfortable. Three needs 8, of which only six exist at strictly
-flat colours — and the two missing, `LDL` and `DLD`, are exactly the ones a QR alternates through
-constantly. Four would need 16 and has no usable set.
+this.** A candidate also has to be *neutral*, not merely the right brightness: luminance alone lets a
+tan pixel through, and RGB 240,236,152 scores about 230 while rendering as a visibly yellow module.
+Most of the client's artwork is warm, which rules it out. Two rows needs 4 crops and is comfortable,
+three needs 8 and they exist but unevenly, four would need 16 and has no usable set.
 
 Defaults for two rows crop the USK age-rating badge, `Interface/Glues/Login/Glues-GermanRating`,
-which carries luminance 0 directly above 248 with 13 px of each. The three-row defaults are a
-starting point only: their darks sit around 26–58 rather than 0 and come from crops as small as
-4×6 px, so they do not match the other patterns' black and will need retuning. All patterns in use
+which carries luminance 0 directly above 248 with 13 px of each. The three-row defaults are neutral but
+uneven: most darks sit near 32 while `LDL` is 1 and `DLD` is 26–37, and those two come from bands
+only 2–3 px tall, which blur when stretched to a module. Expect to retune them. All patterns in use
 must agree on their black and their white, or the seam between lines reads as a module edge.
 
 Packing buys far less in bytes than in lines, because a run has to agree on every row it spans and

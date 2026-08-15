@@ -42,11 +42,16 @@ namespace
     /// both bands flat enough to stretch across a run. It is the set that has been checked
     /// in-game.
     ///
-    /// The three-row set is not. Only six of its eight patterns exist in the client at
-    /// strictly flat colours, and the two that do not - LDL and DLD - are exactly the ones a
-    /// QR alternates through constantly, so the entries below fall back to crops whose bands
-    /// are 2-3 px and whose greys are less separated. Expect to retune them, and check a code
-    /// still scans before trusting three rows.
+    /// A candidate has to be neutral, not merely the right brightness. Luminance alone lets a
+    /// tan pixel through - RGB 240,236,152 scores about 230 and renders as a visibly yellow
+    /// module - so every entry here is checked for near-zero chroma as well. That is what
+    /// disqualifies most of the client's artwork, which is warm almost everywhere.
+    ///
+    /// The three-row set has not been checked in-game. Its bands are neutral but they do not
+    /// all sit at the same levels: most darks land near 32 while LDL's is 1 and DLD's are
+    /// 26-37, and LDL and DLD come from bands only 2-3 px tall, which blur when stretched to
+    /// a module. Expect to retune them, and confirm a code still scans before trusting three
+    /// rows.
     ///
     /// Coordinates are stated against each texture's real pixel size rather than as
     /// percentages: exact, and shorter, which matters because a crop is charged on every
@@ -62,14 +67,14 @@ namespace
         { "DL",  "Interface/Glues/Login/Glues-GermanRating",    "128:128:2:52:88:114"    },
         { "DD",  "Interface/Glues/Login/Glues-GermanRating",    "128:128:1:51:89:100"    },
 
-        { "LLL", "Interface/Buttons/WHITE8X8",                  ""                       },
-        { "LLD", "Interface/Glues/Credits/Zombie5",             "256:256:219:249:79:187" },
-        { "LDL", "Interface/Icons/INV_Scroll_11",               "64:64:44:48:1:7"        },
-        { "LDD", "Interface/Glues/Credits/Zombie5",             "256:256:215:249:114:225"},
-        { "DLL", "Interface/Glues/Models/UI_RS_SCOURGE/ScourgeFemaleSkin02", "512:512:319:322:40:85" },
-        { "DLD", "Interface/Glues/Login/Glues-RealmSelect",     "512:512:260:264:72:81"  },
-        { "DDL", "Interface/Glues/Login/Glues-KoreanRating-Verbal", "64:64:27:37:11:47"  },
-        { "DDD", "Interface/Glues/Login/Glues-KoreanRating-Verbal", "128:128:33:94:48:66" },
+        { "LLL", "Interface/Buttons/WHITE8X8",                      ""                      },
+        { "LLD", "Interface/Glues/Login/Glues-KoreanRating-Fear",   "128:128:93:102:51:123" },
+        { "LDL", "Interface/Icons/INV_Pants_Plate_05",              "64:64:48:52:1:7"       },
+        { "LDD", "Interface/Glues/Login/Glues-KoreanRating-Fear",   "128:128:59:77:87:123"  },
+        { "DLL", "Interface/Glues/Login/Glues-KoreanRating-Verbal", "128:128:54:89:56:98"   },
+        { "DLD", "Interface/Glues/Login/Glues-RealmSelect",         "512:512:260:264:72:81" },
+        { "DDL", "Interface/Glues/Login/Glues-KoreanRating-Verbal", "64:64:27:37:11:47"     },
+        { "DDD", "Interface/Glues/Login/Glues-KoreanRating-Verbal", "128:128:33:94:48:66"   },
     };
 
     /// Spells a style index as the pattern it draws, top module first, which is the order

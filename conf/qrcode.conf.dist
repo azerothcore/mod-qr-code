@@ -186,12 +186,16 @@
 #                     percentages: exact, and shorter, which matters because a crop is charged on
 #                     every escape.
 #
+                     A candidate has to be neutral, not just the right brightness: luminance
+#                     alone lets a tan pixel through, and RGB 240,236,152 scores about 230 while
+#                     rendering as a visibly yellow module. Most client artwork is warm, which
+#                     rules it out.
+#
 #                     Defaults for 2 rows crop the USK age-rating badge, which gives luminance 0
-#                     above 248 with flat bands. Defaults for 3 rows are a starting point only:
-#                     only six of the eight patterns exist at strictly flat colours, and the two
-#                     that do not, LDL and DLD, are exactly the ones a QR alternates through
-#                     constantly. Their fallbacks come from 2-4 px crops whose darks sit around
-#                     26-58 rather than 0, so the black and white do not match the other six.
+#                     above 248 with flat bands, and is the set checked in-game. Defaults for 3
+#                     rows are neutral but uneven: most darks sit near 32 while LDL is 1 and DLD
+#                     is 26-37, and LDL and DLD come from bands only 2-3 px tall, which blur when
+#                     stretched to a module.
 #
 #                     All patterns in use must agree on their black and their white. A mismatch
 #                     makes the seam between lines read as a module edge.
