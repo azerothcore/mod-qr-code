@@ -169,10 +169,12 @@
 #        Description: Module rows drawn per chat line, 1 to 4.
 #                     1 draws one row per line from QRCode.DarkTexture / QRCode.LightTexture and
 #                     ignores every QRCode.Pack.* option below.
-#                     2 is the default and the only value checked in-game.
-#                     3 works but its crops are poor (see below); lower ModuleHeight to about 5
-#                     first, then confirm a code still scans.
-#        Default:     2
+#                     3 is the default, paired with the 5 px ModuleHeight and -4 LineAdvance
+#                     below: three 5 px rows come to 15 px, which still fits the line advance.
+#                     2 is the safer fallback, and wants ModuleHeight back around 7.
+#                     Raising ModuleHeight without lowering RowsPerLine grows the line and
+#                     hands the saving straight back.
+#        Default:     3
 #
 #    QRCode.Pack.<PATTERN>.Texture / QRCode.Pack.<PATTERN>.TexCoords
 #        Description: Style for one column pattern, where PATTERN spells the column's modules top
@@ -295,7 +297,7 @@ QRCode.DarkTexCoords = "100:100:45:55:45:55"
 QRCode.LightTexture = "Interface/Buttons/WHITE8X8"
 QRCode.LightTexCoords = ""
 
-QRCode.RowsPerLine = 2
+QRCode.RowsPerLine = 3
 
 QRCode.Pack.LL.Texture = "Interface/Buttons/WHITE8X8"
 QRCode.Pack.LL.TexCoords = ""
@@ -306,9 +308,9 @@ QRCode.Pack.DL.TexCoords = "128:128:2:52:88:114"
 QRCode.Pack.DD.Texture = "Interface/Glues/Login/Glues-GermanRating"
 QRCode.Pack.DD.TexCoords = "128:128:1:51:89:100"
 
-QRCode.Chat.ModuleWidth = 7
-QRCode.Chat.ModuleHeight = 7
-QRCode.Chat.LineAdvance = 0
+QRCode.Chat.ModuleWidth = 4
+QRCode.Chat.ModuleHeight = 5
+QRCode.Chat.LineAdvance = -4
 QRCode.Chat.MaxRowWidth = 0
 
 QRCode.Quest.ModuleWidth = 7

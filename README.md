@@ -60,7 +60,7 @@ that decides whether a code fits on screen at all.
 | 1 | 7 | 23 | 368 px | no |
 | 2 | 7 | 12 | 192 px | no |
 | 3 | 7 | 8 | 168 px | **yes** |
-| 3 | 5 | 8 | 128 px | no |
+| **3** | **5** | **8** | **128 px** | no ← shipped |
 
 The ceiling is the chat font's fixed line advance, around 16 px. While `RowsPerLine * ModuleHeight`
 stays under it the line keeps its normal height; past it the line grows to fit the taller escape and
@@ -79,9 +79,10 @@ Most of the client's artwork is warm, which rules it out. Two rows needs 4 crops
 three needs 8 and they exist but unevenly, four would need 16 and has no usable set.
 
 Defaults for two rows crop the USK age-rating badge, `Interface/Glues/Login/Glues-GermanRating`,
-which carries luminance 0 directly above 248 with 13 px of each. The three-row defaults are neutral but
-uneven: most darks sit near 32 while `LDL` is 1 and `DLD` is 26–37, and those two come from bands
-only 2–3 px tall, which blur when stretched to a module. Expect to retune them. All patterns in use
+which carries luminance 0 directly above 248 with 13 px of each. The three-row set scans at the shipped
+4×5 modules but is the less comfortable of the two: its darks sit near 32 while `LDL` is 1 and `DLD`
+is 26–37, and those two come from bands only 2–3 px tall. They hold up at 5 px and are the first
+thing to suspect if a taller module stops scanning. All patterns in use
 must agree on their black and their white, or the seam between lines reads as a module edge.
 
 Packing buys far less in bytes than in lines, because a run has to agree on every row it spans and
@@ -123,8 +124,8 @@ a single argument means a square of that size.
 
 ### Two-factor setup by QR
 
-A two-factor payload needs a version 4 symbol — 35 module rows. At `QRCode.RowsPerLine` 2, that is
-18 chat lines and fits a default frame; with it off it is 35, which does not, and the player gets the
+A two-factor payload needs a version 4 symbol — 35 module rows. At the shipped `QRCode.RowsPerLine` 3, that is
+12 chat lines and fits a default frame; with it off it is 35, which does not, and the player gets the
 bottom two thirds of a code and no way to scan it. The command therefore ships enabled alongside
 packing. **Turn it off if you set `RowsPerLine` to 1**, or confirm `.qr grid 35` fits your frame first —
 see the chat-lines section below for what buys the room. When disabled the command refuses and points
@@ -232,13 +233,13 @@ before first use:
 | `QRCode.MaxPayloadBytes` | 48000 | Hard cap on the generated string |
 | `QRCode.CooldownSeconds` | 5 | Per-player rate limit. Set to 0 while calibrating |
 | `QRCode.QuietZone` | 1 | Light border in modules, 1-4. Each one costs two chat lines; the spec asks for 4 |
-| `QRCode.RowsPerLine` | 2 | Module rows per chat line, 1-4. Cuts the height a code needs |
+| `QRCode.RowsPerLine` | 3 | Module rows per chat line, 1-4. Cuts the height a code needs |
 | `QRCode.TwoFA.Enable` | 1 | Offers `.account 2fa qrcode`. Turn off if you set `RowsPerLine` to 1 |
 | `QRCode.TwoFA.Issuer` | "" | Label shown by the authenticator app; empty means the realm name |
 | `QRCode.DarkTexture` / `QRCode.LightTexture` | see conf | Texture per module colour — tinting is impossible |
 | `QRCode.DarkTexCoords` / `QRCode.LightTexCoords` | see conf | Sub-rect crop, `texW:texH:left:right:top:bottom` |
-| `QRCode.Chat.ModuleWidth` / `.ModuleHeight` | 7 | Module size — a version 1 code lands at ~203 px |
-| `QRCode.Chat.LineAdvance` | 0 | Row-offset dial; lower packs rows tighter |
+| `QRCode.Chat.ModuleWidth` / `.ModuleHeight` | 4 / 5 | Module size. Paired with `RowsPerLine` — see below |
+| `QRCode.Chat.LineAdvance` | -4 | Row-offset dial; lower packs lines tighter |
 | `QRCode.AnchorBottom` | 1 | Sit the code at the bottom of its lines, not the top |
 
 Every pixel value is a config option rather than a constant, so the whole module retunes with

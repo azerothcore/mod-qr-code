@@ -55,11 +55,11 @@ namespace
     /// with a uniform aspect stretch but not with that kind of row-by-row jitter, so every
     /// mixed pattern wants bands comfortably thicker than the drawn module.
     ///
-    /// The three-row set has not been checked in-game. Its bands are neutral but they do not
-    /// all sit at the same levels: most darks land near 32 while LDL's is 1 and DLD's are
-    /// 26-37, and LDL and DLD come from bands only 2-3 px tall, which blur when stretched to
-    /// a module. Expect to retune them, and confirm a code still scans before trusting three
-    /// rows.
+    /// The three-row set scans in-game at the shipped 4x5 modules, which is what it is tuned
+    /// for. It is the less comfortable of the two: its bands are neutral but not level, with
+    /// most darks near 32 while LDL sits at 1 and DLD at 26-37, and LDL and DLD come from
+    /// bands only 2-3 px tall. Those hold up at 5 px modules and are the first thing to
+    /// suspect if a taller module stops scanning.
     ///
     /// Coordinates are stated against each texture's real pixel size rather than as
     /// percentages: exact, and shorter, which matters because a crop is charged on every
@@ -133,12 +133,12 @@ QrRenderGeometry QrConfig::LoadGeometry(std::string const& prefix, QrRenderGeome
         LOG_ERROR("module.qrcode", "QRCode.PackRows has been replaced by QRCode.RowsPerLine "
             "(1 = one row per line, 2 = what PackRows = 1 used to do) and is being ignored");
 
-    geometry.rowsPerLine = sConfigMgr->GetOption<uint32>("QRCode.RowsPerLine", 2);
+    geometry.rowsPerLine = sConfigMgr->GetOption<uint32>("QRCode.RowsPerLine", 3);
     if (!geometry.rowsPerLine || geometry.rowsPerLine > QR_MAX_ROWS_PER_LINE)
     {
-        LOG_ERROR("module.qrcode", "QRCode.RowsPerLine = {} is outside 1..{}, falling back to 2",
+        LOG_ERROR("module.qrcode", "QRCode.RowsPerLine = {} is outside 1..{}, falling back to 3",
             geometry.rowsPerLine, QR_MAX_ROWS_PER_LINE);
-        geometry.rowsPerLine = 2;
+        geometry.rowsPerLine = 3;
     }
 
     std::size_t const styleCount = std::size_t(1) << geometry.rowsPerLine;
@@ -214,15 +214,17 @@ void QrConfig::Load()
     TwoFAEnabled    = sConfigMgr->GetOption<bool>("QRCode.TwoFA.Enable", true);
     TwoFAIssuer     = sConfigMgr->GetOption<std::string>("QRCode.TwoFA.Issuer", "");
 
-    // Chat defaults are measured in-game: 7 px square modules, and a row offset of
-    // (0 - 7) that lifts each row 7 px to cancel the chat font's row spacing. The client
-    // reads a positive offset as upward, so a lower LineAdvance packs the rows tighter -
-    // it is a dial, not a measurement of anything. The quest values are extrapolated from
-    // the chat ones and still need confirming in the quest pane.
+    // Chat defaults are measured in-game, and they only make sense as a set: three rows per
+    // line at 5 px each comes to 15 px, which still fits inside the chat font's line advance,
+    // and LineAdvance -4 is what lands the lines flush at that height. Change one and the
+    // other two want rechecking. The client reads a positive offset as upward, so a lower
+    // LineAdvance packs the lines tighter - it is a dial, not a measurement of anything.
+    // The quest values are extrapolated from the chat ones and still need confirming in the
+    // quest pane.
     QrRenderGeometry chatDefaults;
-    chatDefaults.moduleWidth = 7;
-    chatDefaults.moduleHeight = 7;
-    chatDefaults.lineAdvance = 0;
+    chatDefaults.moduleWidth = 4;
+    chatDefaults.moduleHeight = 5;
+    chatDefaults.lineAdvance = -4;
     chatDefaults.maxRowWidthPx = 0;
 
     QrRenderGeometry questDefaults;
