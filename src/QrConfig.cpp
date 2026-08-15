@@ -47,6 +47,14 @@ namespace
     /// module - so every entry here is checked for near-zero chroma as well. That is what
     /// disqualifies most of the client's artwork, which is warm almost everywhere.
     ///
+    /// Band thickness matters just as much, and for a reason that is easy to miss. The client
+    /// scales the crop into an escape two modules tall, so a crop with 13 px bands is scaled
+    /// down and keeps a hard edge, while one with 3 px bands is scaled up and the boundary
+    /// becomes a two-pixel ramp. Thresholding then eats the soft edge and the module row comes
+    /// out short - which makes a row's height depend on which pattern drew it. Decoders cope
+    /// with a uniform aspect stretch but not with that kind of row-by-row jitter, so every
+    /// mixed pattern wants bands comfortably thicker than the drawn module.
+    ///
     /// The three-row set has not been checked in-game. Its bands are neutral but they do not
     /// all sit at the same levels: most darks land near 32 while LDL's is 1 and DLD's are
     /// 26-37, and LDL and DLD come from bands only 2-3 px tall, which blur when stretched to
@@ -62,10 +70,10 @@ namespace
         { "L",   "Interface/Buttons/WHITE8X8",                  ""                       },
         { "D",   "Interface/Glues/Login/Glues-GermanRating",    "128:128:1:51:89:100"    },
 
-        { "LL",  "Interface/Buttons/WHITE8X8",                  ""                       },
-        { "LD",  "Interface/Glues/Login/Glues-GermanRating",    "128:128:2:126:122:128"  },
-        { "DL",  "Interface/Glues/Login/Glues-GermanRating",    "128:128:2:52:88:114"    },
-        { "DD",  "Interface/Glues/Login/Glues-GermanRating",    "128:128:1:51:89:100"    },
+        { "LL",  "Interface/Buttons/WHITE8X8",                    ""                      },
+        { "LD",  "Interface/Glues/Login/Glues-KoreanRating-Fear", "128:128:90:102:75:123" },
+        { "DL",  "Interface/Glues/Login/Glues-GermanRating",      "128:128:2:52:88:114"   },
+        { "DD",  "Interface/Glues/Login/Glues-GermanRating",      "128:128:1:51:89:100"   },
 
         { "LLL", "Interface/Buttons/WHITE8X8",                      ""                      },
         { "LLD", "Interface/Glues/Login/Glues-KoreanRating-Fear",   "128:128:93:102:51:123" },

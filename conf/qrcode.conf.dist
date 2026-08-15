@@ -186,7 +186,14 @@
 #                     percentages: exact, and shorter, which matters because a crop is charged on
 #                     every escape.
 #
-                     A candidate has to be neutral, not just the right brightness: luminance
+                     Band thickness matters as much as colour. The client scales the crop into
+#                     an escape two modules tall, so 13 px bands scale down and keep a hard edge
+#                     while 3 px bands scale up into a two-pixel ramp. Thresholding eats the soft
+#                     edge, the module row comes out short, and a row's height ends up depending
+#                     on which pattern drew it. Decoders cope with a uniform stretch but not with
+#                     row-by-row jitter, so mixed patterns want bands well thicker than a module.
+#
+#                     A candidate has to be neutral, not just the right brightness: luminance
 #                     alone lets a tan pixel through, and RGB 240,236,152 scores about 230 while
 #                     rendering as a visibly yellow module. Most client artwork is warm, which
 #                     rules it out.
@@ -292,8 +299,8 @@ QRCode.RowsPerLine = 2
 
 QRCode.Pack.LL.Texture = "Interface/Buttons/WHITE8X8"
 QRCode.Pack.LL.TexCoords = ""
-QRCode.Pack.LD.Texture = "Interface/Glues/Login/Glues-GermanRating"
-QRCode.Pack.LD.TexCoords = "128:128:2:126:122:128"
+QRCode.Pack.LD.Texture = "Interface/Glues/Login/Glues-KoreanRating-Fear"
+QRCode.Pack.LD.TexCoords = "128:128:90:102:75:123"
 QRCode.Pack.DL.Texture = "Interface/Glues/Login/Glues-GermanRating"
 QRCode.Pack.DL.TexCoords = "128:128:2:52:88:114"
 QRCode.Pack.DD.Texture = "Interface/Glues/Login/Glues-GermanRating"
