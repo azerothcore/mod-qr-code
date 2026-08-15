@@ -26,6 +26,78 @@ QrConfig* QrConfig::instance()
     return &instance;
 }
 
+namespace
+{
+    struct QrPackDefault
+    {
+        char const* pattern;
+        char const* texture;
+        char const* texCoords;
+    };
+
+    /// Default crop per packed pattern, named by its modules read top to bottom.
+    ///
+    /// The two-row set crops the USK age-rating badge, the one stock texture carrying a hard
+    /// black-on-white edge in both directions with no alpha near it: luminance 0 above 248,
+    /// both bands flat enough to stretch across a run. It is the set that has been checked
+    /// in-game.
+    ///
+    /// The three-row set is not. Only six of its eight patterns exist in the client at
+    /// strictly flat colours, and the two that do not - LDL and DLD - are exactly the ones a
+    /// QR alternates through constantly, so the entries below fall back to crops whose bands
+    /// are 2-3 px and whose greys are less separated. Expect to retune them, and check a code
+    /// still scans before trusting three rows.
+    ///
+    /// Coordinates are stated against each texture's real pixel size rather than as
+    /// percentages: exact, and shorter, which matters because a crop is charged on every
+    /// escape.
+    constexpr QrPackDefault PACK_DEFAULTS[] =
+    {
+        // One row per line never reads these, but a bare "L"/"D" keeps the table total.
+        { "L",   "Interface/Buttons/WHITE8X8",                  ""                       },
+        { "D",   "Interface/Glues/Login/Glues-GermanRating",    "128:128:1:51:89:100"    },
+
+        { "LL",  "Interface/Buttons/WHITE8X8",                  ""                       },
+        { "LD",  "Interface/Glues/Login/Glues-GermanRating",    "128:128:2:126:122:128"  },
+        { "DL",  "Interface/Glues/Login/Glues-GermanRating",    "128:128:2:52:88:114"    },
+        { "DD",  "Interface/Glues/Login/Glues-GermanRating",    "128:128:1:51:89:100"    },
+
+        { "LLL", "Interface/Buttons/WHITE8X8",                  ""                       },
+        { "LLD", "Interface/Glues/Credits/Zombie5",             "256:256:219:249:79:187" },
+        { "LDL", "Interface/Icons/INV_Scroll_11",               "64:64:44:48:1:7"        },
+        { "LDD", "Interface/Glues/Credits/Zombie5",             "256:256:215:249:114:225"},
+        { "DLL", "Interface/Glues/Models/UI_RS_SCOURGE/ScourgeFemaleSkin02", "512:512:319:322:40:85" },
+        { "DLD", "Interface/Glues/Login/Glues-RealmSelect",     "512:512:260:264:72:81"  },
+        { "DDL", "Interface/Glues/Login/Glues-KoreanRating-Verbal", "64:64:27:37:11:47"  },
+        { "DDD", "Interface/Glues/Login/Glues-KoreanRating-Verbal", "128:128:33:94:48:66" },
+    };
+
+    /// Spells a style index as the pattern it draws, top module first, which is the order
+    /// the config names it in and the order the renderer packs the bits.
+    std::string PackPatternName(std::size_t state, uint32 rows)
+    {
+        std::string name;
+        name.reserve(rows);
+
+        for (uint32 d = 0; d < rows; ++d)
+            name += ((state >> (rows - 1 - d)) & 1) ? 'D' : 'L';
+
+        return name;
+    }
+
+    QrPackDefault const& PackDefaultFor(std::string const& pattern)
+    {
+        for (QrPackDefault const& entry : PACK_DEFAULTS)
+            if (pattern == entry.pattern)
+                return entry;
+
+        // Four rows would need sixteen crops; the client does not have them, so there is
+        // nothing to offer and the caller reports the gap.
+        static constexpr QrPackDefault none{ "", "", "" };
+        return none;
+    }
+}
+
 QrRenderGeometry QrConfig::LoadGeometry(std::string const& prefix, QrRenderGeometry const& defaults) const
 {
     QrRenderGeometry geometry;
@@ -44,36 +116,44 @@ QrRenderGeometry QrConfig::LoadGeometry(std::string const& prefix, QrRenderGeome
 
     geometry.anchorBottom = sConfigMgr->GetOption<bool>("QRCode.AnchorBottom", true);
 
-    // The defaults crop the USK age-rating badge, which is the one stock texture carrying a
-    // hard black-on-white edge in both directions with no alpha anywhere near it: pure 0
-    // above pure 248, and both bands flat enough to stretch across a run. Coordinates are
-    // stated against the texture's real 128x128 rather than as percentages, which keeps them
-    // exact and costs a third of the bytes - and every crop is charged on every escape.
-    geometry.packRows = sConfigMgr->GetOption<bool>("QRCode.PackRows", true);
+    if (sConfigMgr->GetOption<int32>("QRCode.PackRows", -1) != -1)
+        LOG_ERROR("module.qrcode", "QRCode.PackRows has been replaced by QRCode.RowsPerLine "
+            "(1 = one row per line, 2 = what PackRows = 1 used to do) and is being ignored");
 
-    geometry.packed.dark.texture = sConfigMgr->GetOption<std::string>("QRCode.Pack.DarkTexture",
-        "Interface/Glues/Login/Glues-GermanRating");
-    geometry.packed.dark.texCoords = sConfigMgr->GetOption<std::string>("QRCode.Pack.DarkTexCoords",
-        "128:128:1:51:89:100");
-    geometry.packed.light.texture = sConfigMgr->GetOption<std::string>("QRCode.Pack.LightTexture",
-        "Interface/Buttons/WHITE8X8");
-    geometry.packed.light.texCoords = sConfigMgr->GetOption<std::string>("QRCode.Pack.LightTexCoords", "");
-    geometry.packed.darkOverLight.texture = sConfigMgr->GetOption<std::string>("QRCode.Pack.DarkOverLightTexture",
-        "Interface/Glues/Login/Glues-GermanRating");
-    geometry.packed.darkOverLight.texCoords = sConfigMgr->GetOption<std::string>("QRCode.Pack.DarkOverLightTexCoords",
-        "128:128:2:52:88:114");
-    geometry.packed.lightOverDark.texture = sConfigMgr->GetOption<std::string>("QRCode.Pack.LightOverDarkTexture",
-        "Interface/Glues/Login/Glues-GermanRating");
-    geometry.packed.lightOverDark.texCoords = sConfigMgr->GetOption<std::string>("QRCode.Pack.LightOverDarkTexCoords",
-        "128:128:2:126:122:128");
-
-    if (geometry.packRows && (geometry.packed.dark.texture.empty() || geometry.packed.light.texture.empty() ||
-        geometry.packed.darkOverLight.texture.empty() || geometry.packed.lightOverDark.texture.empty()))
+    geometry.rowsPerLine = sConfigMgr->GetOption<uint32>("QRCode.RowsPerLine", 2);
+    if (!geometry.rowsPerLine || geometry.rowsPerLine > QR_MAX_ROWS_PER_LINE)
     {
-        LOG_ERROR("module.qrcode", "QRCode.PackRows needs all four QRCode.Pack.*Texture paths set, "
-            "drawing one row per line instead");
-        geometry.packRows = false;
+        LOG_ERROR("module.qrcode", "QRCode.RowsPerLine = {} is outside 1..{}, falling back to 2",
+            geometry.rowsPerLine, QR_MAX_ROWS_PER_LINE);
+        geometry.rowsPerLine = 2;
     }
+
+    std::size_t const styleCount = std::size_t(1) << geometry.rowsPerLine;
+    bool complete = true;
+
+    for (std::size_t state = 0; state < styleCount; ++state)
+    {
+        std::string const pattern = PackPatternName(state, geometry.rowsPerLine);
+        QrPackDefault const& fallback = PackDefaultFor(pattern);
+
+        geometry.packed[state].texture =
+            sConfigMgr->GetOption<std::string>("QRCode.Pack." + pattern + ".Texture", fallback.texture);
+        geometry.packed[state].texCoords =
+            sConfigMgr->GetOption<std::string>("QRCode.Pack." + pattern + ".TexCoords", fallback.texCoords);
+
+        if (geometry.rowsPerLine > 1 && geometry.packed[state].texture.empty())
+        {
+            LOG_ERROR("module.qrcode", "QRCode.Pack.{}.Texture has no value and no default, so "
+                "{} rows per line cannot be drawn", pattern, geometry.rowsPerLine);
+            complete = false;
+        }
+    }
+
+    // Every pattern has to be drawable or the grid comes out with holes in it, which still
+    // looks like a code and still will not scan. One row per line always works, so fall back
+    // to it rather than emit something broken.
+    if (!complete)
+        geometry.rowsPerLine = 1;
 
     if (!geometry.moduleWidth || !geometry.moduleHeight)
     {

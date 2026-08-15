@@ -55,7 +55,7 @@ public:
     /// The command is only usable where the whole code fits on screen at once, and a 2FA
     /// payload needs a version 4 symbol - 35 module rows. Row packing draws those in 18
     /// chat lines, which a default frame shows; without it they need 35, which it does
-    /// not. So this follows QRCode.PackRows: on with it, and worth turning off without it,
+    /// not. So this follows QRCode.RowsPerLine: on at 2 or more, and worth turning off at 1,
     /// since a code the player can only see two thirds of is worse than no command.
     bool TwoFAEnabled = true;
 

@@ -145,61 +145,56 @@
 #
 ###################################################################################################
 #
-#    ROW PACKING (experimental)
+#    ROW PACKING
 #
-#    A code is one chat line per module row, and running out of frame height is the failure this
-#    module actually hits. Packing draws two module rows inside one escape of double height, which
-#    halves the lines a code needs - a version 3 code drops from 35 lines to 18.
+#    A code is one chat line per module row by default, and running out of frame height is the
+#    failure this module actually hits. Packing draws several module rows inside one escape, cutting
+#    the line count by that factor: a version 4 code needs 35 lines at 1 row, 18 at 2, 12 at 3.
 #
-#    It costs nothing in bytes and saves none either: a run has to agree on both rows at once, so
-#    merging gets weaker and the escape count barely moves. Lines are the whole point.
+#    It buys far less in bytes than it looks. A run has to agree on every row it spans, so merging
+#    weakens as fast as the line count falls. Packing is for lines, not payload size.
 #
-#    The catch is the chat font's fixed line advance. Two 7 px modules come to 14 px and still fit
-#    inside it, which is why this works at the default module size. Raise ModuleHeight past 8 and
-#    the line grows to fit the taller escape, handing the halving straight back - so re-check
-#    against a real frame after changing it.
+#    The ceiling is the chat font's fixed line advance, around 16 px. While
+#    RowsPerLine * ModuleHeight stays under it the line keeps its normal height and the saving is
+#    real; past it the line grows to fit the taller escape and hands the saving straight back. Two
+#    7 px modules come to 14 px and fit, which is why 2 is free at the shipped module size. Three
+#    need ModuleHeight around 5 to stay inside, and LineAdvance retuned to match.
 #
-#    LineAdvance still applies, but a packed line spans two module rows and so needs one module
-#    less lift than a single row does. At the chat default of 0 that cancels outright and no line
-#    is displaced at all - the pairs simply land on the font's own spacing.
+#    A packed escape needs a texture that already contains the whole column, since one escape names
+#    only one texture. Of 14k client textures, 80 carry a hard black/white edge in both directions
+#    and only 2 have flat bands, so the supply is the real limit: 2 rows is comfortable, 3 is
+#    marginal, 4 has no usable set at all.
 #
-#    A packed escape needs a texture that already contains both modules, since one escape can name
-#    only one texture. The client has very few of those: the defaults crop the USK age-rating badge,
-#    which carries pure black directly above pure white with no alpha nearby. Its lower edge gives
-#    only 3 px of black, so the light-over-dark pair is the soft one - if a code will not scan, that
-#    is the crop to replace first.
+#    QRCode.RowsPerLine
+#        Description: Module rows drawn per chat line, 1 to 4.
+#                     1 draws one row per line from QRCode.DarkTexture / QRCode.LightTexture and
+#                     ignores every QRCode.Pack.* option below.
+#                     2 is the default and the only value checked in-game.
+#                     3 works but its crops are poor (see below); lower ModuleHeight to about 5
+#                     first, then confirm a code still scans.
+#        Default:     2
 #
-#    Coordinates below are stated against the badge's real 128x128 instead of as percentages: exact,
-#    and a third of the bytes, which matters when every crop is repeated on every escape.
+#    QRCode.Pack.<PATTERN>.Texture / QRCode.Pack.<PATTERN>.TexCoords
+#        Description: Style for one column pattern, where PATTERN spells the column's modules top
+#                     to bottom as L and D, one letter per row. At RowsPerLine 2 that is LL, LD, DL
+#                     and DD; at 3 it is LLL through DDD. Every pattern for the chosen RowsPerLine
+#                     must resolve to a texture or the module logs the gap and falls back to one
+#                     row per line, because a grid with holes still looks like a code and still
+#                     will not scan.
 #
-#    QRCode.PackRows
-#        Description: 1 draws two module rows per chat line using the QRCode.Pack.* styles below.
-#                     0 draws one row per line using QRCode.DarkTexture / QRCode.LightTexture.
-#                     The two style sets are independent so the modes can be compared by flipping
-#                     this alone.
-#        Default:     1
+#                     TexCoords are stated against the texture's real pixel size rather than as
+#                     percentages: exact, and shorter, which matters because a crop is charged on
+#                     every escape.
 #
-#    QRCode.Pack.DarkTexture / QRCode.Pack.DarkTexCoords
-#        Description: Pair with both modules dark.
-#        Default:     "Interface/Glues/Login/Glues-GermanRating" / "128:128:1:51:89:100"
+#                     Defaults for 2 rows crop the USK age-rating badge, which gives luminance 0
+#                     above 248 with flat bands. Defaults for 3 rows are a starting point only:
+#                     only six of the eight patterns exist at strictly flat colours, and the two
+#                     that do not, LDL and DLD, are exactly the ones a QR alternates through
+#                     constantly. Their fallbacks come from 2-4 px crops whose darks sit around
+#                     26-58 rather than 0, so the black and white do not match the other six.
 #
-#    QRCode.Pack.LightTexture / QRCode.Pack.LightTexCoords
-#        Description: Pair with both modules light, including the quiet zone. Uncropped, so this
-#                     one stays the cheapest escape of the four - and it is also the commonest.
-#        Default:     "Interface/Buttons/WHITE8X8" / ""
-#
-#    QRCode.Pack.DarkOverLightTexture / QRCode.Pack.DarkOverLightTexCoords
-#        Description: Pair with the upper module dark and the lower one light. 13 px of each in the
-#                     default crop, so the boundary lands exactly halfway.
-#        Default:     "Interface/Glues/Login/Glues-GermanRating" / "128:128:2:52:88:114"
-#
-#    QRCode.Pack.LightOverDarkTexture / QRCode.Pack.LightOverDarkTexCoords
-#        Description: Pair with the upper module light and the lower one dark. Only 3 px of each,
-#                     stretched to fill, so this is the crop most likely to need replacing.
-#        Default:     "Interface/Glues/Login/Glues-GermanRating" / "128:128:2:126:122:128"
-#
-#    All four styles have to agree on their black and their white. Mixing a source whose "black" is
-#    a dark grey with one that is a true black makes the seam between pairs read as a module edge.
+#                     All patterns in use must agree on their black and their white. A mismatch
+#                     makes the seam between lines read as a module edge.
 #
 ###################################################################################################
 #
@@ -289,15 +284,16 @@ QRCode.DarkTexCoords = "100:100:45:55:45:55"
 QRCode.LightTexture = "Interface/Buttons/WHITE8X8"
 QRCode.LightTexCoords = ""
 
-QRCode.PackRows = 1
-QRCode.Pack.DarkTexture = "Interface/Glues/Login/Glues-GermanRating"
-QRCode.Pack.DarkTexCoords = "128:128:1:51:89:100"
-QRCode.Pack.LightTexture = "Interface/Buttons/WHITE8X8"
-QRCode.Pack.LightTexCoords = ""
-QRCode.Pack.DarkOverLightTexture = "Interface/Glues/Login/Glues-GermanRating"
-QRCode.Pack.DarkOverLightTexCoords = "128:128:2:52:88:114"
-QRCode.Pack.LightOverDarkTexture = "Interface/Glues/Login/Glues-GermanRating"
-QRCode.Pack.LightOverDarkTexCoords = "128:128:2:126:122:128"
+QRCode.RowsPerLine = 2
+
+QRCode.Pack.LL.Texture = "Interface/Buttons/WHITE8X8"
+QRCode.Pack.LL.TexCoords = ""
+QRCode.Pack.LD.Texture = "Interface/Glues/Login/Glues-GermanRating"
+QRCode.Pack.LD.TexCoords = "128:128:2:126:122:128"
+QRCode.Pack.DL.Texture = "Interface/Glues/Login/Glues-GermanRating"
+QRCode.Pack.DL.TexCoords = "128:128:2:52:88:114"
+QRCode.Pack.DD.Texture = "Interface/Glues/Login/Glues-GermanRating"
+QRCode.Pack.DD.TexCoords = "128:128:1:51:89:100"
 
 QRCode.Chat.ModuleWidth = 7
 QRCode.Chat.ModuleHeight = 7

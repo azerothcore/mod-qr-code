@@ -20,6 +20,7 @@
 
 #include "QrEncoder.h"
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -59,20 +60,15 @@ struct QrModuleStyle
     std::string texCoords;
 };
 
-/// The four vertical module pairs a packed escape has to be able to draw.
+/// Most module rows one text line may carry.
 ///
-/// Packing puts two module rows inside one escape, so a mixed pair needs a texture whose
-/// crop already contains a dark band sitting directly on a light one - it cannot be built
-/// out of the solid styles, because an escape names exactly one texture. The set also has
-/// to be internally consistent: if the solid dark and the dark half of a mixed pair are
-/// not the same colour, the seam between pairs reads as a module edge.
-struct QrPackedStyles
-{
-    QrModuleStyle dark;          ///< Both modules dark.
-    QrModuleStyle light;         ///< Both modules light, including the quiet zone.
-    QrModuleStyle darkOverLight; ///< Upper module dark, lower module light.
-    QrModuleStyle lightOverDark; ///< Upper module light, lower module dark.
-};
+/// Every extra row doubles the number of distinct crops the client has to supply, and the
+/// supply is the binding constraint long before the arithmetic is: two rows need 4, three
+/// need 8, four need 16, and the stock textures already run thin at three.
+constexpr std::uint32_t QR_MAX_ROWS_PER_LINE = 4;
+
+/// Number of packed styles the widest supported line needs.
+constexpr std::size_t QR_PACKED_STYLE_COUNT = std::size_t(1) << QR_MAX_ROWS_PER_LINE;
 
 /// Pixel geometry the escape sequences are emitted with. Every field is a client-side
 /// value that can only be settled by looking at the result in-game, so all of them come
@@ -112,23 +108,27 @@ struct QrRenderGeometry
     /// floating with a visible gap beneath it, which grows as modules get smaller.
     bool anchorBottom = true;
 
-    /// Draw two module rows per text line, taking styles from @ref packed rather than from
-    /// @ref dark and @ref light.
+    /// Module rows drawn per text line, 1 to QR_MAX_ROWS_PER_LINE.
     ///
-    /// Halves the number of chat lines a code occupies, which is the resource this module
-    /// actually runs out of. It buys nothing in bytes - both rows' run boundaries still
-    /// have to be honoured, so the escape count barely moves - and the longer texture paths
-    /// a packed style needs can leave the payload slightly larger than the unpacked one.
+    /// 1 draws one row per line from @ref dark and @ref light. Above that each line is one
+    /// escape per run, @ref rowsPerLine modules tall, styled from @ref packed - which cuts
+    /// the line count by that factor, and the line count is the resource the chat frame
+    /// actually runs out of.
     ///
-    /// Only sound while two modules still fit inside the chat font's fixed line advance.
-    /// Past that the line grows to fit the taller escape and hands the halving straight
-    /// back, so it wants rechecking against the real frame whenever moduleHeight changes.
-    /// The shipped config turns it on; this default stays off so a bare geometry never
-    /// packs without the four styles below having been filled in.
-    bool packRows = false;
+    /// It buys far less in bytes than it looks: a run has to agree on every row it spans,
+    /// so merging weakens as fast as the line count falls.
+    ///
+    /// The ceiling is the chat font's fixed line advance, around 16 px. While
+    /// rowsPerLine * moduleHeight stays under it the line keeps its normal height and the
+    /// saving is real; past it the line grows to fit the taller escape and hands the saving
+    /// straight back. Two 7 px modules come to 14 px and fit, which is why 2 is free at the
+    /// shipped module size; three need moduleHeight around 5 to stay inside.
+    std::uint32_t rowsPerLine = 1;
 
-    /// Styles used when @ref packRows is set. Ignored otherwise.
-    QrPackedStyles packed;
+    /// Styles for packed lines, indexed by the column's modules read top to bottom as bits,
+    /// most significant first: with rowsPerLine 2, index 0b10 is dark over light. Only the
+    /// first 2^rowsPerLine entries are read. Ignored when rowsPerLine is 1.
+    std::array<QrModuleStyle, QR_PACKED_STYLE_COUNT> packed;
 
     /// Widest row the target frame can show without wrapping, in pixels. 0 = no limit.
     std::uint32_t maxRowWidthPx = 0;

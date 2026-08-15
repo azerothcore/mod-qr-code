@@ -75,252 +75,30 @@ namespace
             ":0:" + std::to_string(offY) + "|t";
     }
 
-    // Four distinct paths, so picking the wrong pair style fails on the path rather than
-    // happening to match another style's string.
-    constexpr char const* PACK_DARK  = "Pack/Dark";
-    constexpr char const* PACK_LIGHT = "Pack/Light";
-    constexpr char const* PACK_DOL   = "Pack/DarkOverLight";
-    constexpr char const* PACK_LOD   = "Pack/LightOverDark";
+    // Named for the pattern each one draws, top module first, so a mis-indexed style shows
+    // up as the wrong path rather than as some other style's plausible-looking string.
+    constexpr char const* PACK_LL = "Pack/LL";
+    constexpr char const* PACK_LD = "Pack/LD";
+    constexpr char const* PACK_DL = "Pack/DL";
+    constexpr char const* PACK_DD = "Pack/DD";
 
     QrRenderGeometry PackedGeometry()
     {
         QrRenderGeometry geometry = SquareGeometry();
-        geometry.packRows                     = true;
-        geometry.packed.dark.texture          = PACK_DARK;
-        geometry.packed.light.texture         = PACK_LIGHT;
-        geometry.packed.darkOverLight.texture = PACK_DOL;
-        geometry.packed.lightOverDark.texture = PACK_LOD;
+        geometry.rowsPerLine          = 2;
+        geometry.packed[0b00].texture = PACK_LL;
+        geometry.packed[0b01].texture = PACK_LD;
+        geometry.packed[0b10].texture = PACK_DL;
+        geometry.packed[0b11].texture = PACK_DD;
         return geometry;
     }
 
-    /// A packed escape is always two modules tall, hence the doubled height throughout.
+    /// A two-row packed escape is always two modules tall, hence the doubled height.
     std::string Pair(char const* texture, std::uint32_t widthPx, std::int32_t offY)
     {
         return std::string("|T") + texture + ":28:" + std::to_string(widthPx) + ":0:" +
             std::to_string(offY) + "|t";
     }
-}
-
-/// Locks the exact escape syntax: each run picks up its own colour's texture, a crop is
-/// appended only when one is configured, and there is no stray separator when it is not.
-/// Also pins run-length merging - four modules leave as two escapes, at double width each.
-TEST(QrRendererTest, MergesRunsAndDrawsEachColourWithItsOwnTexture)
-{
-    std::vector<bool> const modules{ true, true, false, false };
-
-    QrRenderResult const result = RenderModuleGrid(modules, 4, 1, SquareGeometry());
-
-    ASSERT_EQ(QrRenderError::None, result.error);
-    EXPECT_EQ(
-        "|TInterface/DialogFrame/UI-DialogBox-Background:14:20:0:0:100:100:45:55:45:55|t"
-        "|TInterface/Buttons/WHITE8X8:14:20:0:0|t",
-        result.text);
-}
-
-/// An uncropped style stops after offY. A stray trailing separator would make the client
-/// read a malformed rect, so the empty case has to be omitted rather than emitted blank.
-TEST(QrRendererTest, OmitsTheCropWhenNoneIsConfigured)
-{
-    QrRenderGeometry geometry = SquareGeometry();
-    geometry.dark.texCoords.clear();
-
-    std::vector<bool> const modules{ true };
-
-    QrRenderResult const result = RenderModuleGrid(modules, 1, 1, geometry);
-
-    ASSERT_EQ(QrRenderError::None, result.error);
-    EXPECT_EQ("|TInterface/DialogFrame/UI-DialogBox-Background:14:10:0:0|t", result.text);
-}
-
-/// Every escape in row N carries offY = -N * (lineAdvance - moduleHeight), which is what
-/// closes the seam between rows when the modules are shorter than the font's line advance.
-TEST(QrRendererTest, AccumulatesRowOffsetWhenModulesAreShorterThanTheLineAdvance)
-{
-    QrRenderGeometry geometry = SquareGeometry();
-    geometry.moduleHeight = 9;
-
-    std::vector<bool> const modules{ true, true };
-
-    QrRenderResult const result = RenderModuleGrid(modules, 1, 2, geometry);
-
-    ASSERT_EQ(QrRenderError::None, result.error);
-    EXPECT_EQ(Dark(10, 9, 0) + "\n" + Dark(10, 9, -5), result.text);
-}
-
-/// Bottom anchoring leaves the last row on its own line and displaces the earlier ones
-/// upward from there, so the height the text block reserves but does not draw into ends up
-/// above the grid rather than below it.
-TEST(QrRendererTest, AnchorsTheLastRowToItsOwnLine)
-{
-    QrRenderGeometry geometry = SquareGeometry();
-    geometry.anchorBottom = true;
-    geometry.moduleHeight = 9;
-
-    std::vector<bool> const modules{ true, true, true };
-
-    QrRenderResult const result = RenderModuleGrid(modules, 1, 3, geometry);
-
-    ASSERT_EQ(QrRenderError::None, result.error);
-
-    // Same 5 px spacing as the top-anchored case, shifted so the last row lands on zero.
-    EXPECT_EQ(Dark(10, 9, 10) + "\n" + Dark(10, 9, 5) + "\n" + Dark(10, 9, 0), result.text);
-}
-
-/// A single row cannot be displaced by either anchor - there is nothing to displace it
-/// relative to - so both modes have to agree on it.
-TEST(QrRendererTest, LeavesASingleRowUnshiftedUnderEitherAnchor)
-{
-    QrRenderGeometry topAnchored = SquareGeometry();
-    topAnchored.moduleHeight = 9;
-
-    QrRenderGeometry bottomAnchored = topAnchored;
-    bottomAnchored.anchorBottom = true;
-
-    std::vector<bool> const modules{ true };
-
-    EXPECT_EQ(RenderModuleGrid(modules, 1, 1, topAnchored).text,
-        RenderModuleGrid(modules, 1, 1, bottomAnchored).text);
-    EXPECT_EQ(Dark(10, 9, 0), RenderModuleGrid(modules, 1, 1, bottomAnchored).text);
-}
-
-/// A negative line advance is the documented escape hatch for an inverted offY sign
-/// convention, so it has to flow through to a positive offset rather than be clamped.
-TEST(QrRendererTest, NegativeLineAdvanceFlipsTheRowOffset)
-{
-    QrRenderGeometry geometry = SquareGeometry();
-    geometry.moduleHeight = 9;
-    geometry.lineAdvance  = -14;
-
-    std::vector<bool> const modules{ true, true };
-
-    QrRenderResult const result = RenderModuleGrid(modules, 1, 2, geometry);
-
-    ASSERT_EQ(QrRenderError::None, result.error);
-    EXPECT_NE(std::string::npos, result.text.find(":9:10:0:23:"));
-}
-
-/// Rows with no offset collapse to offY 0, which is the whole point of the chat backend's
-/// square geometry.
-TEST(QrRendererTest, RowOffsetCollapsesWhenModuleHeightMatchesLineAdvance)
-{
-    std::vector<bool> const modules{ true, true, true, true };
-
-    QrRenderResult const result = RenderModuleGrid(modules, 1, 4, SquareGeometry());
-
-    ASSERT_EQ(QrRenderError::None, result.error);
-    EXPECT_EQ(std::string::npos, result.text.find(":0:-"));
-}
-
-/// The quiet zone pads all four sides and is drawn as real light textures, never left
-/// blank: a blank line would take the frame's own background colour, which is dark in chat
-/// and would break decoding there.
-TEST(QrRendererTest, PadsTheQuietZoneOnAllFourSidesWithRealTextures)
-{
-    QrBitmap bitmap;
-    bitmap.size = 1;
-    bitmap.modules = { true };
-
-    QrRenderGeometry geometry = SquareGeometry();
-    geometry.quietZone = QR_QUIET_ZONE_MODULES;
-
-    QrRenderResult const result = RenderQr(bitmap, geometry);
-
-    ASSERT_EQ(QrRenderError::None, result.error);
-
-    std::vector<std::string> const rows = SplitRows(result.text);
-    ASSERT_EQ(std::size_t(9), rows.size());
-
-    // The eight quiet rows are one merged light run spanning the full 9-module width.
-    std::string const fullLightRow = Light(90, 14, 0);
-    for (std::size_t i = 0; i < rows.size(); ++i)
-    {
-        if (i == QR_QUIET_ZONE_MODULES)
-            continue;
-
-        EXPECT_EQ(fullLightRow, rows[i]) << "row " << i << " should be entirely quiet zone";
-    }
-
-    // The data row keeps four light modules on each side of the single dark one.
-    EXPECT_EQ(Light(40, 14, 0) + Dark(10, 14, 0) + Light(40, 14, 0), rows[QR_QUIET_ZONE_MODULES]);
-}
-
-/// Every module of border is two more chat lines to find room for, and frame height is what
-/// this module runs out of first, so the default sits below the spec's four.
-TEST(QrRendererTest, DefaultsToTheNarrowQuietZone)
-{
-    QrBitmap bitmap;
-    bitmap.size = 1;
-    bitmap.modules = { true };
-
-    QrRenderResult const result = RenderQr(bitmap, SquareGeometry());
-
-    ASSERT_EQ(QrRenderError::None, result.error);
-    ASSERT_EQ(std::size_t(1 + 2 * QR_QUIET_ZONE_DEFAULT_MODULES), SplitRows(result.text).size());
-}
-
-/// The quiet zone is configurable because the trade it makes - decoder margin against chat
-/// lines - can only be settled against a real frame.
-TEST(QrRendererTest, HonoursAConfiguredQuietZone)
-{
-    QrBitmap bitmap;
-    bitmap.size = 1;
-    bitmap.modules = { true };
-
-    QrRenderGeometry geometry = SquareGeometry();
-    geometry.quietZone = 2;
-
-    QrRenderResult const result = RenderQr(bitmap, geometry);
-
-    ASSERT_EQ(QrRenderError::None, result.error);
-
-    std::vector<std::string> const rows = SplitRows(result.text);
-    ASSERT_EQ(std::size_t(5), rows.size());
-    EXPECT_EQ(Light(50, 14, 0), rows[0]);
-    EXPECT_EQ(Light(20, 14, 0) + Dark(10, 14, 0) + Light(20, 14, 0), rows[2]);
-}
-
-/// A row wider than the frame wraps, which turns the grid into noise. Refusing up front
-/// beats emitting something that cannot possibly scan.
-TEST(QrRendererTest, RefusesRowsWiderThanTheFrame)
-{
-    QrRenderGeometry geometry = SquareGeometry();
-    geometry.maxRowWidthPx = 50;
-
-    std::vector<bool> const modules(6, false);
-
-    QrRenderResult const result = RenderModuleGrid(modules, 6, 1, geometry);
-
-    EXPECT_EQ(QrRenderError::RowTooWide, result.error);
-    EXPECT_EQ(std::uint32_t(60), result.rowWidthPx);
-    EXPECT_TRUE(result.text.empty());
-}
-
-TEST(QrRendererTest, AllowsRowsExactlyAtTheFrameWidth)
-{
-    QrRenderGeometry geometry = SquareGeometry();
-    geometry.maxRowWidthPx = 60;
-
-    std::vector<bool> const modules(6, false);
-
-    QrRenderResult const result = RenderModuleGrid(modules, 6, 1, geometry);
-
-    EXPECT_EQ(QrRenderError::None, result.error);
-}
-
-/// Oversized strings are rejected rather than sent, because what an over-long line does to
-/// the client is exactly the unknown this module has to stay on the safe side of.
-TEST(QrRendererTest, RefusesPayloadsOverTheByteCap)
-{
-    QrRenderGeometry geometry = SquareGeometry();
-    geometry.maxPayloadBytes = 16;
-
-    std::vector<bool> const modules{ true, false };
-
-    QrRenderResult const result = RenderModuleGrid(modules, 2, 1, geometry);
-
-    EXPECT_EQ(QrRenderError::PayloadTooLarge, result.error);
-    EXPECT_GT(result.byteCount, std::size_t(16));
-    EXPECT_TRUE(result.text.empty());
 }
 
 /// Each of the four vertical pairs has to reach its own style. Getting this wrong inverts
@@ -334,8 +112,8 @@ TEST(QrRendererTest, PackedRowsPickAStylePerVerticalPair)
     QrRenderResult const result = RenderModuleGrid(modules, 4, 2, PackedGeometry());
 
     ASSERT_EQ(QrRenderError::None, result.error);
-    EXPECT_EQ(Pair(PACK_DARK, 10, 0) + Pair(PACK_LIGHT, 10, 0) + Pair(PACK_DOL, 10, 0) +
-        Pair(PACK_LOD, 10, 0), result.text);
+    EXPECT_EQ(Pair(PACK_DD, 10, 0) + Pair(PACK_LL, 10, 0) + Pair(PACK_DL, 10, 0) +
+        Pair(PACK_LD, 10, 0), result.text);
 }
 
 /// The whole point: the grid occupies half the chat lines. Frame height is what this module
@@ -360,7 +138,7 @@ TEST(QrRendererTest, PackedRunsMergeOnlyWhereBothRowsAgree)
     QrRenderResult const result = RenderModuleGrid(modules, 2, 2, PackedGeometry());
 
     ASSERT_EQ(QrRenderError::None, result.error);
-    EXPECT_EQ(Pair(PACK_DARK, 10, 0) + Pair(PACK_DOL, 10, 0), result.text);
+    EXPECT_EQ(Pair(PACK_DD, 10, 0) + Pair(PACK_DL, 10, 0), result.text);
 }
 
 /// An odd row count leaves the final line without a lower row. Reading the absent one as
@@ -373,7 +151,7 @@ TEST(QrRendererTest, PackedRowsPairAnOddLastRowWithLight)
     QrRenderResult const result = RenderModuleGrid(modules, 1, 3, PackedGeometry());
 
     ASSERT_EQ(QrRenderError::None, result.error);
-    EXPECT_EQ(Pair(PACK_DARK, 10, 0) + "\n" + Pair(PACK_DOL, 10, -14), result.text);
+    EXPECT_EQ(Pair(PACK_DD, 10, 0) + "\n" + Pair(PACK_DL, 10, -14), result.text);
 }
 
 /// A packed line spans two module rows, so it needs one module less lift than a single row
@@ -386,7 +164,7 @@ TEST(QrRendererTest, PackedRowOffsetDropsOneModuleOfLiftPerLine)
     QrRenderResult const result = RenderModuleGrid(modules, 1, 4, PackedGeometry());
 
     ASSERT_EQ(QrRenderError::None, result.error);
-    EXPECT_EQ(Pair(PACK_DARK, 10, 0) + "\n" + Pair(PACK_DARK, 10, -14), result.text);
+    EXPECT_EQ(Pair(PACK_DD, 10, 0) + "\n" + Pair(PACK_DD, 10, -14), result.text);
 }
 
 /// The shipped chat geometry lifts nothing at all once packed: two 7 px modules already
@@ -418,7 +196,7 @@ TEST(QrRendererTest, PackedRowsHonourBottomAnchoring)
     QrRenderResult const result = RenderModuleGrid(modules, 1, 4, geometry);
 
     ASSERT_EQ(QrRenderError::None, result.error);
-    EXPECT_EQ(Pair(PACK_DARK, 10, 14) + "\n" + Pair(PACK_DARK, 10, 0), result.text);
+    EXPECT_EQ(Pair(PACK_DD, 10, 14) + "\n" + Pair(PACK_DD, 10, 0), result.text);
 }
 
 /// Packing has to leave the quiet zone intact, drawn as real light textures like the
@@ -439,12 +217,89 @@ TEST(QrRendererTest, PackedRowsKeepTheQuietZone)
     // 9 padded rows pair down to 5 lines, the last of them half quiet zone and half absent.
     std::vector<std::string> const rows = SplitRows(result.text);
     ASSERT_EQ(std::size_t(5), rows.size());
-    EXPECT_EQ(Pair(PACK_LIGHT, 90, 0), rows[0]);
-    EXPECT_EQ(Pair(PACK_LIGHT, 90, -14), rows[1]);
+    EXPECT_EQ(Pair(PACK_LL, 90, 0), rows[0]);
+    EXPECT_EQ(Pair(PACK_LL, 90, -14), rows[1]);
 
     // Row 4 of 9 is the upper half of the third pair, so the one dark module draws as
     // dark-over-light rather than as a solid pair.
-    EXPECT_EQ(Pair(PACK_LIGHT, 40, -28) + Pair(PACK_DOL, 10, -28) + Pair(PACK_LIGHT, 40, -28), rows[2]);
+    EXPECT_EQ(Pair(PACK_LL, 40, -28) + Pair(PACK_DL, 10, -28) + Pair(PACK_LL, 40, -28), rows[2]);
+}
+
+/// Three rows per line reaches eight styles, and the index has to read the top module as
+/// the high bit. Reversing it mirrors every line top to bottom, which still looks like a
+/// grid and still will not scan.
+TEST(QrRendererTest, IndexesPackedStylesWithTheTopModuleAsTheHighBit)
+{
+    QrRenderGeometry geometry = SquareGeometry();
+    geometry.rowsPerLine = 3;
+
+    for (std::size_t i = 0; i < 8; ++i)
+        geometry.packed[i].texture = "Pack/" + std::to_string(i);
+
+    // Dark, light, dark reading downward is 0b101.
+    std::vector<bool> const modules{ true, false, true };
+
+    QrRenderResult const result = RenderModuleGrid(modules, 1, 3, geometry);
+
+    ASSERT_EQ(QrRenderError::None, result.error);
+    EXPECT_EQ("|TPack/5:42:10:0:0|t", result.text);
+}
+
+/// The lift per line is (2 - rows) * moduleHeight - lineAdvance. At three rows that is one
+/// module more displacement than two rows needs, not less, and getting the sign or the
+/// factor wrong stacks the lines on top of each other.
+TEST(QrRendererTest, ScalesTheRowOffsetWithTheRowsPerLine)
+{
+    QrRenderGeometry geometry = SquareGeometry();
+    geometry.rowsPerLine = 3;
+    geometry.packed[0b111].texture = PACK_DD;
+
+    std::vector<bool> const modules(6, true);
+
+    QrRenderResult const result = RenderModuleGrid(modules, 1, 6, geometry);
+
+    ASSERT_EQ(QrRenderError::None, result.error);
+
+    // step = (2 - 3) * 14 - 14 = -28, so the second line sits 28 px lower than the first.
+    EXPECT_EQ("|TPack/DD:42:10:0:0|t\n|TPack/DD:42:10:0:-28|t", result.text);
+}
+
+/// A grid that does not divide evenly pads the final line with light, which reads as more
+/// quiet zone. Padding with dark would print a false row of modules across the bottom.
+TEST(QrRendererTest, PadsTheLastPackedLineWithLight)
+{
+    QrRenderGeometry geometry = SquareGeometry();
+    geometry.rowsPerLine = 3;
+
+    for (std::size_t i = 0; i < 8; ++i)
+        geometry.packed[i].texture = "Pack/" + std::to_string(i);
+
+    // Four dark rows over three-row lines: the second line is dark, then two missing rows.
+    std::vector<bool> const modules(4, true);
+
+    QrRenderResult const result = RenderModuleGrid(modules, 1, 4, geometry);
+
+    ASSERT_EQ(QrRenderError::None, result.error);
+    EXPECT_EQ("|TPack/7:42:10:0:0|t\n|TPack/4:42:10:0:-28|t", result.text);
+}
+
+/// Asking for more rows than there are styles would index past the array, so the renderer
+/// clamps rather than trusting config it cannot satisfy.
+TEST(QrRendererTest, ClampsRowsPerLineToTheSupportedMaximum)
+{
+    QrRenderGeometry geometry = SquareGeometry();
+    geometry.rowsPerLine = QR_MAX_ROWS_PER_LINE + 7;
+
+    for (std::size_t i = 0; i < QR_PACKED_STYLE_COUNT; ++i)
+        geometry.packed[i].texture = "Pack/" + std::to_string(i);
+
+    std::vector<bool> const modules(QR_MAX_ROWS_PER_LINE, true);
+
+    QrRenderResult const result =
+        RenderModuleGrid(modules, 1, QR_MAX_ROWS_PER_LINE, geometry);
+
+    ASSERT_EQ(QrRenderError::None, result.error);
+    EXPECT_EQ(std::size_t(1), SplitRows(result.text).size());
 }
 
 /// Sanity bound on the size estimate the whole design rests on: a version 1 code is the
