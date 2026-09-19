@@ -63,18 +63,6 @@ namespace
         return geometry;
     }
 
-    std::string Dark(std::uint32_t widthPx, std::uint32_t heightPx, std::int32_t offY)
-    {
-        return std::string("|T") + DARK_TEXTURE + ":" + std::to_string(heightPx) + ":" + std::to_string(widthPx) +
-            ":0:" + std::to_string(offY) + ":" + DARK_COORDS + "|t";
-    }
-
-    std::string Light(std::uint32_t widthPx, std::uint32_t heightPx, std::int32_t offY)
-    {
-        return std::string("|T") + LIGHT_TEXTURE + ":" + std::to_string(heightPx) + ":" + std::to_string(widthPx) +
-            ":0:" + std::to_string(offY) + "|t";
-    }
-
     // Named for the pattern each one draws, top module first, so a mis-indexed style shows
     // up as the wrong path rather than as some other style's plausible-looking string.
     constexpr char const* PACK_LL = "Pack/LL";
