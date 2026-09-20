@@ -301,11 +301,14 @@ TEST(QrRendererTest, ProducesOneLinePerPaddedRow)
     for (std::size_t i = 0; i < bitmap.modules.size(); ++i)
         bitmap.modules[i] = (i % 2) == 0;
 
-    QrRenderResult const result = RenderQr(bitmap, SquareGeometry());
+    QrRenderGeometry const geometry = SquareGeometry();
+    QrRenderResult const result = RenderQr(bitmap, geometry);
+
+    std::size_t const paddedRows = bitmap.size + 2 * geometry.quietZone;
 
     ASSERT_EQ(QrRenderError::None, result.error);
-    EXPECT_EQ(std::size_t(29), SplitRows(result.text).size());
-    EXPECT_EQ(std::size_t(28), std::count(result.text.begin(), result.text.end(), '\n'));
+    EXPECT_EQ(paddedRows, SplitRows(result.text).size());
+    EXPECT_EQ(paddedRows - 1, std::size_t(std::count(result.text.begin(), result.text.end(), '\n')));
 }
 
 /// The whole point of a palette: the colour reaches the dark modules and nothing else does.
