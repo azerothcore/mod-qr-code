@@ -63,18 +63,6 @@ namespace
         return geometry;
     }
 
-    std::string Dark(std::uint32_t widthPx, std::uint32_t heightPx, std::int32_t offY)
-    {
-        return std::string("|T") + DARK_TEXTURE + ":" + std::to_string(heightPx) + ":" + std::to_string(widthPx) +
-            ":0:" + std::to_string(offY) + ":" + DARK_COORDS + "|t";
-    }
-
-    std::string Light(std::uint32_t widthPx, std::uint32_t heightPx, std::int32_t offY)
-    {
-        return std::string("|T") + LIGHT_TEXTURE + ":" + std::to_string(heightPx) + ":" + std::to_string(widthPx) +
-            ":0:" + std::to_string(offY) + "|t";
-    }
-
     // Named for the pattern each one draws, top module first, so a mis-indexed style shows
     // up as the wrong path rather than as some other style's plausible-looking string.
     constexpr char const* PACK_LL = "Pack/LL";
@@ -313,11 +301,14 @@ TEST(QrRendererTest, ProducesOneLinePerPaddedRow)
     for (std::size_t i = 0; i < bitmap.modules.size(); ++i)
         bitmap.modules[i] = (i % 2) == 0;
 
-    QrRenderResult const result = RenderQr(bitmap, SquareGeometry());
+    QrRenderGeometry const geometry = SquareGeometry();
+    QrRenderResult const result = RenderQr(bitmap, geometry);
+
+    std::size_t const paddedRows = bitmap.size + 2 * geometry.quietZone;
 
     ASSERT_EQ(QrRenderError::None, result.error);
-    EXPECT_EQ(std::size_t(29), SplitRows(result.text).size());
-    EXPECT_EQ(std::size_t(28), std::count(result.text.begin(), result.text.end(), '\n'));
+    EXPECT_EQ(paddedRows, SplitRows(result.text).size());
+    EXPECT_EQ(paddedRows - 1, std::size_t(std::count(result.text.begin(), result.text.end(), '\n')));
 }
 
 /// The whole point of a palette: the colour reaches the dark modules and nothing else does.
